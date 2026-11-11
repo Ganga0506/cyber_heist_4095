@@ -1,0 +1,37 @@
+:root {
+  color-scheme: dark;
+  --navy: #070b18;
+  --card: rgba(10, 16, 40, 0.86);
+  --text: #e8eeff;
+  --muted: #c5cdee;
+  --blue: #3ec6ff;
+  --gold: #f5c451;
+  --purple: #8b6cff;
+  font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(139, 108, 255, 0.38), transparent 42%),
+    radial-gradient(circle at top right, rgba(62, 198, 255, 0.18), transparent 34%),
+    linear-gradient(165deg, #070b18 0%, #171236 52%, #0b1024 100%);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

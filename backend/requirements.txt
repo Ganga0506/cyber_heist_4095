@@ -1,0 +1,8 @@
+# Versions used for the Week 1 check.
+fastapi==0.162.4
+uvicorn==0.54.0
+sqlalchemy==2.1.8
+pydantic==2.14.3
+# Used by the FastAPI test client.
+httpx2==2.16.0
+pytest==8.4.2

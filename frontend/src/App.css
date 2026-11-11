@@ -1,0 +1,202 @@
+.page {
+  width: min(1080px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2.5rem 0 3rem;
+}
+
+.hero {
+  padding: 1.5rem 0 2rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.8rem;
+  color: var(--blue);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.7rem, 8vw, 5.4rem);
+  letter-spacing: 0.14em;
+  line-height: 0.95;
+  text-shadow: 0 0 22px rgba(62, 198, 255, 0.55);
+}
+
+.subtitle {
+  margin: 0.9rem 0 0;
+  color: var(--gold);
+  font-size: clamp(1rem, 2.4vw, 1.35rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.intro {
+  max-width: 42rem;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.start-button {
+  margin-top: 0.4rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.9rem 1.4rem;
+  background: var(--blue);
+  color: #071018;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 0 22px rgba(62, 198, 255, 0.5);
+}
+
+.start-button:hover {
+  background: var(--gold);
+  box-shadow: 0 0 22px rgba(245, 196, 81, 0.45);
+}
+
+.start-button:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+
+.notice {
+  max-width: 40rem;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(245, 196, 81, 0.7);
+  border-radius: 12px;
+  background: rgba(245, 196, 81, 0.1);
+  color: var(--gold);
+}
+
+.section-heading {
+  margin: 1rem 0 1.2rem;
+}
+
+.section-heading h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.6rem;
+}
+
+.section-heading p {
+  max-width: 46rem;
+  margin: 0.35rem 0;
+  color: var(--muted);
+}
+
+.source {
+  color: var(--blue);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 700px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1000px) {
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 1.15rem 1.15rem 1rem;
+  border: 1px solid rgba(62, 198, 255, 0.35);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 0 24px rgba(62, 198, 255, 0.12);
+}
+
+.card.mvp {
+  border-color: rgba(245, 196, 81, 0.75);
+  box-shadow: 0 0 24px rgba(245, 196, 81, 0.16);
+}
+
+.order {
+  margin: 0;
+  color: var(--blue);
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.card h3 {
+  margin: 0.35rem 0 0.5rem;
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+}
+
+.card p {
+  margin: 0.35rem 0;
+}
+
+.topic {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 0.9rem;
+}
+
+.badge,
+.puzzle-count {
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+}
+
+.badge {
+  border: 1px solid rgba(139, 108, 255, 0.8);
+  color: #ddd4ff;
+}
+
+.mvp-badge {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.puzzle-count {
+  color: var(--muted);
+}
+
+footer {
+  margin-top: 2.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(62, 198, 255, 0.25);
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+footer p {
+  margin: 0.25rem 0;
+}
+
+@media (max-width: 640px) {
+  .page {
+    width: min(100% - 1.4rem, 1080px);
+    padding-top: 1.5rem;
+  }
+
+  h1 {
+    letter-spacing: 0.08em;
+  }
+}
