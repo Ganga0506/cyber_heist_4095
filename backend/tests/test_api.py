@@ -44,8 +44,8 @@ def test_mission_list_comes_from_the_database(client):
     assert all(mission["puzzle_count"] >= 2 for mission in payload)
 
 
-def test_mission_detail_hides_the_solution(client):
-    response = client.get("/api/missions/1")
+def test_mission_detail_hides_the_solution(client, auth_headers):
+    response = client.get("/api/missions/1", headers=auth_headers)
     assert response.status_code == 200
     payload = response.json()
     assert payload["title"] == "THE SETUP"
@@ -55,8 +55,8 @@ def test_mission_detail_hides_the_solution(client):
     _walk(payload)
 
 
-def test_missing_mission_returns_404(client):
-    response = client.get("/api/missions/99")
+def test_missing_mission_returns_404(client, auth_headers):
+    response = client.get("/api/missions/99", headers=auth_headers)
     assert response.status_code == 404
     assert response.json()["detail"] == "Mission not found"
 
@@ -89,17 +89,16 @@ def test_leaderboard_uses_best_correct_attempt(client):
     assert [entry["rank"] for entry in payload["entries"]] == [1, 2, 3, 4, 5]
 
 
-def test_responses_do_not_reveal_protected_data(client, seeded_session):
+def test_responses_do_not_reveal_protected_data(client, seeded_session, auth_headers):
     hashes, emails = _secret_values(seeded_session)
     paths = [
         "/api/health",
         "/api/missions",
         "/api/missions/1",
-        "/api/missions/5",
         "/api/leaderboard",
     ]
     for path in paths:
-        response = client.get(path)
+        response = client.get(path, headers=auth_headers)
         assert response.status_code == 200
         body = response.text
         for secret in hashes:
@@ -108,7 +107,7 @@ def test_responses_do_not_reveal_protected_data(client, seeded_session):
             assert email not in body
         _walk(response.json())
 
-    progress = client.get("/api/me/progress", auth=("nova.agent", "dev-only-nova"))
+    progress = client.get("/api/me/progress", headers=auth_headers)
     assert progress.status_code == 200
     for secret in hashes:
         assert secret not in progress.text
@@ -117,14 +116,14 @@ def test_responses_do_not_reveal_protected_data(client, seeded_session):
     _walk(progress.json())
 
 
-def test_progress_requires_the_demo_password(client):
+def test_progress_requires_a_bearer_session(client, auth_headers):
     missing = client.get("/api/me/progress")
     assert missing.status_code == 401
 
     wrong = client.get("/api/me/progress", auth=("nova.agent", "wrong-password"))
     assert wrong.status_code == 401
 
-    ok = client.get("/api/me/progress", auth=("nova.agent", "dev-only-nova"))
+    ok = client.get("/api/me/progress", headers=auth_headers)
     assert ok.status_code == 200
     payload = ok.json()
     assert payload["username"] == "nova.agent"

@@ -15,6 +15,7 @@ exports taken from a live database file.
 erDiagram
     USERS ||--o{ PUZZLE_ATTEMPTS : submits
     USERS ||--o{ USER_PROGRESS : has
+    USERS ||--o{ AUTH_SESSIONS : authenticates
     MISSIONS ||--o{ PUZZLES : contains
     MISSIONS ||--o{ USER_PROGRESS : tracks
     PUZZLES ||--o{ PUZZLE_ATTEMPTS : receives
@@ -25,6 +26,12 @@ erDiagram
         string email UK
         string password_hash
         datetime created_at
+    }
+
+    AUTH_SESSIONS {
+        string token_hash PK
+        int user_id FK
+        datetime expires_at
     }
 
     MISSIONS {
@@ -76,4 +83,5 @@ Notes:
 - `password_hash` is a PBKDF2 hash. The password text is not stored.
 - Foreign keys are enforced with `PRAGMA foreign_keys = ON`.
 - Deleting a mission that still has puzzles is rejected. The same is true for users or puzzles that still have attempts or progress rows.
-- Mission unlock order is not represented by an extra table. Sample progress rows are snapshots, and the real unlock rule is still an open design choice.
+- MVP missions unlock in order 1 -> 2 -> 5. Demo snapshots are reconciled from solved puzzles when a player logs in.
+- Sessions store only a hash of the bearer token, expire after 24 hours, and are deleted on logout.

@@ -1,6 +1,6 @@
 # Cyber Heist
 
-Cyber Heist is a browser-based cybersecurity escape-room game for CSE 4095 Agentic Programming at UConn. Players register, investigate simulated threats, solve puzzles, earn points, and save progress. This repository is the Week 1 foundation and an early Week 2 prototype. It is not the finished game.
+Cyber Heist is a browser-based cybersecurity escape-room game for CSE 4095 Agentic Programming at UConn. Players register, investigate simulated threats, solve puzzles, earn points, and save progress. This repository includes a local playable MVP with registration, login, saved progress, puzzle submissions, and a leaderboard.
 
 The game uses fictional clues and simulated systems only. It does not connect to or attack real computers.
 
@@ -13,8 +13,7 @@ The game uses fictional clues and simulated systems only. It does not connect to
 ## Technology stack
 
 Development references: [TODO list](TODO.md) and
-[frontend/backend API contract](docs/API_CONTRACT.md). The contract separates
-implemented endpoints from proposed MVP endpoints.
+[frontend/backend API contract](docs/API_CONTRACT.md). The contract describes the implemented API used by the frontend.
 
 - Frontend: React, JavaScript, HTML, CSS (Vite)
 - Backend: Python, FastAPI
@@ -38,7 +37,7 @@ The story has five missions, in this order:
 
 The first playable version focuses on The Setup, The Perimeter, and The Final Heist. All five missions are already stored so the later two are not forgotten.
 
-Mission unlock rules are not final. The proposal describes finishing one mission to open the next. The architecture notes say the MVP connects missions 1, 2, and 5. Sample progress rows show both ideas. The app does not enforce either rule yet.
+MVP progression is 1 -> 2 -> 5. Solve every puzzle in a mission to unlock the next MVP mission. Missions 3 and 4 remain locked previews. Existing demo progress is reconciled from solved puzzles on login.
 
 ## Folder structure
 
@@ -69,6 +68,7 @@ The project folder is named `cyberheist`. That folder is the project root.
 ## Database tables
 
 - `users`: player id, unique username, unique email, password hash, created time.
+- `auth_sessions`: hashed bearer token, user id, and expiry; removed on logout.
 - `missions`: title, description, topic, unique mission order, MVP flag, created time.
 - `puzzles`: mission foreign key, prompt, puzzle type, instructions, solution hash, points, order within the mission.
 - `puzzle_attempts`: user and puzzle foreign keys, whether the attempt was correct, points earned, attempt time.
@@ -84,7 +84,7 @@ SQLite foreign keys are turned on for every connection.
 
 ## Development-only demo accounts
 
-These fictional players exist so the team can try `GET /api/me/progress`. They are not production credentials. Do not reuse the passwords anywhere else. The demo hashes use a fixed salt so the SQL script and the Python seed match. Replace that approach before any real deployment.
+These fictional players exist so the team can try `GET /api/me/progress`. Log in through the frontend with any of these accounts. They are not production credentials. Do not reuse the passwords anywhere else. The demo hashes use a fixed salt so the SQL script and the Python seed match. Replace that approach before any real deployment.
 
 | Username | Email | Password |
 | --- | --- | --- |
@@ -154,14 +154,12 @@ Useful checks:
 ```bash
 curl http://127.0.0.1:8000/api/health
 curl http://127.0.0.1:8000/api/missions
-curl http://127.0.0.1:8000/api/missions/1
 curl http://127.0.0.1:8000/api/leaderboard
-curl -u nova.agent:dev-only-nova http://127.0.0.1:8000/api/me/progress
 ```
 
 CORS allows only `http://localhost:5173` and `http://127.0.0.1:5173`.
 
-The API does not accept puzzle answers and does not let the browser set a score.
+Use the frontend or `/docs` to register, log in, start missions, and submit answers. Login returns a bearer token for protected routes. The backend calculates scores; the browser cannot set them.
 
 ## Frontend
 
@@ -172,9 +170,9 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The dev server proxies `/api` to FastAPI on port 8000. Start the API first if you want the page to load live mission records. The landing page still shows the five planned missions when the API is off.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The dev server proxies `/api` to FastAPI on port 8000. Start the API first. The page shows API connection errors and offers a Refresh data button when it is unavailable.
 
-The Begin Heist button is a preview. Login and puzzle play are not built yet.
+Log in with a demo account or register a new one, then start an available mission. Correct answers save progress and unlock the next MVP mission. Refreshing the browser requires logging in again; saved scores and progress persist.
 
 To build the static files:
 
@@ -204,7 +202,7 @@ sqlite3 cyberheist.db "SELECT COUNT(*) AS attempts FROM puzzle_attempts;"
 sqlite3 cyberheist.db "SELECT status, COUNT(*) FROM user_progress GROUP BY status;"
 ```
 
-Expected counts: 5 users, 5 missions, 10 puzzles, 16 attempts, 25 progress rows.
+Fresh seed counts: 5 users, 5 missions, 10 puzzles, 16 attempts, 25 progress rows. Registration and gameplay increase these counts.
 
 ## GitHub
 

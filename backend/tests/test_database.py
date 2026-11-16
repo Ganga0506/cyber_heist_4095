@@ -56,6 +56,7 @@ def test_database_creation(tmp_path):
     Base.metadata.create_all(bind=engine)
     names = set(inspect(engine).get_table_names())
     assert names == {
+        "auth_sessions",
         "users",
         "missions",
         "puzzles",

@@ -6,7 +6,7 @@ absent. Adding them here would publish them through the FastAPI routes.
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HealthResponse(BaseModel):
@@ -58,8 +58,17 @@ class ProgressItem(BaseModel):
     mission_order: int
     status: str
     completed_at: datetime | None
+    puzzles: list["PuzzleProgress"] = Field(default_factory=list)
+
+
+class PuzzleProgress(BaseModel):
+    puzzle_id: int
+    solved: bool
+    points_earned: int
 
 
 class PlayerProgress(BaseModel):
     username: str
     missions: list[ProgressItem]
+    score: int = 0
+    puzzles_solved: int = 0

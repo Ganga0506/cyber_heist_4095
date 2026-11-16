@@ -44,3 +44,10 @@ def client(seeded_session):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def auth_headers(client):
+    response = client.post("/api/auth/login", json={"username": "nova.agent", "password": "dev-only-nova"})
+    assert response.status_code == 200
+    return {"Authorization": "Bearer " + response.json()["access_token"]}

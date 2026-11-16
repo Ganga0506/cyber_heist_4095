@@ -5,9 +5,10 @@ Week 2 prototype routes:
 - GET /api/missions
 - GET /api/missions/{mission_id}
 - GET /api/leaderboard
-- GET /api/me/progress   (HTTP Basic, demo accounts only)
+- GET /api/me/progress   (bearer session)
 
-There is no answer-submission route. Scores cannot be sent by the browser.
+Account and gameplay routes are registered from gameplay.py.
+Scores are calculated by the server.
 """
 
 import os
@@ -15,7 +16,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -26,12 +26,11 @@ from schemas import (
     LeaderboardResponse,
     MissionDetail,
     MissionSummary,
-    PlayerProgress,
-    ProgressItem,
     PuzzlePublic,
 )
-from security import verify_password
-from seed import init_db
+from seed import init_db, seed
+from database import SessionLocal
+from gameplay import router, current_user, accessible_mission
 
 # Local Vite origins only. Add a new origin here and in README.md together.
 LOCAL_FRONTEND_ORIGINS = [
@@ -45,7 +44,6 @@ SCORING_NOTE = (
     "calculated from puzzle_attempts and is not stored on the user."
 )
 
-security = HTTPBasic()
 
 
 @asynccontextmanager
@@ -53,6 +51,8 @@ async def lifespan(_app: FastAPI):
     # Tests set this to 0 so pytest does not create the development database.
     if os.getenv("CYBERHEIST_AUTO_CREATE", "1") != "0":
         init_db()
+        with SessionLocal() as db:
+            seed(db)
     yield
 
 
@@ -67,7 +67,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=LOCAL_FRONTEND_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -111,7 +111,8 @@ def list_missions(db: Session = Depends(get_db)):
 
 
 @app.get("/api/missions/{mission_id}", response_model=MissionDetail)
-def get_mission(mission_id: int, db: Session = Depends(get_db)):
+def get_mission(mission_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    accessible_mission(db, user, mission_id)
     mission = db.query(Mission).filter(Mission.id == mission_id).one_or_none()
     if mission is None:
         raise HTTPException(status_code=404, detail="Mission not found")
@@ -166,47 +167,5 @@ def leaderboard(db: Session = Depends(get_db)):
     return LeaderboardResponse(scoring=SCORING_NOTE, entries=entries)
 
 
-def get_current_user(
-    credentials: HTTPBasicCredentials = Depends(security),
-    db: Session = Depends(get_db),
-) -> User:
-    """Check a demo account. This is not a finished login system."""
-    user = db.query(User).filter(User.username == credentials.username).one_or_none()
-    password_ok = user is not None and verify_password(
-        credentials.password,
-        user.password_hash,
-    )
-    if not password_ok:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return user
 
-
-@app.get("/api/me/progress", response_model=PlayerProgress)
-def my_progress(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    rows = (
-        db.query(UserProgress, Mission)
-        .join(Mission, Mission.id == UserProgress.mission_id)
-        .filter(UserProgress.user_id == current_user.id)
-        .order_by(Mission.mission_order)
-        .all()
-    )
-    return PlayerProgress(
-        username=current_user.username,
-        missions=[
-            ProgressItem(
-                mission_id=mission.id,
-                title=mission.title,
-                mission_order=mission.mission_order,
-                status=progress.status,
-                completed_at=progress.completed_at,
-            )
-            for progress, mission in rows
-        ],
-    )
+app.include_router(router)

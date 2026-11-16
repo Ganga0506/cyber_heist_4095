@@ -1,9 +1,8 @@
 # Cyber Heist API contract
 
-This file is the shared frontend/backend reference. **Current** describes code
-that exists. **Proposed** describes the next MVP implementation, not working
-routes. Review proposed choices before implementing them. FastAPI's `/docs` and
-`/openapi.json` describe only the currently implemented API.
+This is the implemented local MVP contract. All endpoints below are connected
+to the React interface. FastAPI `/docs` and `/openapi.json` provide the executable
+request/response schemas.
 
 ## Connection and conventions
 
@@ -14,7 +13,7 @@ routes. Review proposed choices before implementing them. FastAPI's `/docs` and
   from the API; do not assume they equal `mission_order`.
 - Successful reads return 200. Current lists are unpaginated.
 - Never send passwords in query strings or return passwords, password hashes,
-  solutions, or solution hashes. Only registration accepts an email; proposed
+  solutions, or solution hashes. Only registration accepts an email;
   user responses below omit it.
 
 ## Endpoint inventory
@@ -23,15 +22,15 @@ routes. Review proposed choices before implementing them. FastAPI's `/docs` and
 | --- | --- | --- | --- | --- |
 | GET | `/api/health` | Current | None | Connection check |
 | GET | `/api/missions` | Current | None | Mission cards |
-| GET | `/api/missions/{mission_id}` | Current | None | Metadata and puzzle instructions |
+| GET | `/api/missions/{mission_id}` | Current | Bearer | Metadata and puzzle instructions |
 | GET | `/api/leaderboard` | Current | None | Leaderboard |
-| GET | `/api/me/progress` | Current | Demo HTTP Basic | Saved mission statuses |
-| POST | `/api/auth/register` | Proposed | None | Create account |
-| POST | `/api/auth/login` | Proposed | None | Create session |
-| GET | `/api/me` | Proposed | Bearer | Identify signed-in player |
-| POST | `/api/auth/logout` | Proposed | Bearer | Revoke session |
-| POST | `/api/missions/{mission_id}/start` | Proposed | Bearer | Start/resume mission |
-| POST | `/api/puzzles/{puzzle_id}/attempts` | Proposed | Bearer | Submit answer |
+| GET | `/api/me/progress` | Current | Bearer | Saved mission statuses |
+| POST | `/api/auth/register` | Current | None | Create account |
+| POST | `/api/auth/login` | Current | None | Create session |
+| GET | `/api/me` | Current | Bearer | Identify signed-in player |
+| POST | `/api/auth/logout` | Current | Bearer | Revoke session |
+| POST | `/api/missions/{mission_id}/start` | Current | Bearer | Start/resume mission |
+| POST | `/api/puzzles/{puzzle_id}/attempts` | Current | Bearer | Submit answer |
 
 Also current: `GET /` returns API name and health/docs links; `/docs` serves the
 interactive reference. Separate puzzle-detail, score-update, and mission-complete
@@ -60,9 +59,12 @@ Leaderboard = { scoring: string, entries: LeaderboardEntry[] }
 ProgressItem = {
   mission_id: integer, title: string, mission_order: integer,
   status: "locked" | "available" | "in_progress" | "completed",
-  completed_at: datetime-string | null
+  completed_at: datetime-string | null, puzzles: PuzzleProgress[]
 }
-PlayerProgress = { username: string, missions: ProgressItem[] }
+PuzzleProgress = { puzzle_id: integer, solved: boolean, points_earned: integer }
+PlayerProgress = {
+  username: string, missions: ProgressItem[], score: integer, puzzles_solved: integer
+}
 ```
 
 | Read | 200 body | Details/errors |
@@ -71,31 +73,23 @@ PlayerProgress = { username: string, missions: ProgressItem[] }
 | Missions | `MissionSummary[]` | Ordered by `mission_order`; empty list allowed |
 | Mission detail | `MissionDetail` | Puzzles ordered by `puzzle_order`; 404: `{"detail":"Mission not found"}` |
 | Leaderboard | `Leaderboard` | Score descending, username ascending for ties; ranks are sequential starting at 1 |
-| My progress | `PlayerProgress` | Ordered by mission order; 401 for missing/invalid Basic credentials |
+| My progress | `PlayerProgress` | Ordered by mission order; 401 for missing/invalid bearer session |
 
-Current progress authentication is `Authorization: Basic <base64(username:password)>`
-using README demo accounts. Invalid supplied credentials return
-`{"detail":"Invalid username or password"}` and `WWW-Authenticate: Basic`.
-Missing credentials are handled by FastAPI's HTTP Basic dependency.
+Scores sum each player's best correct points per puzzle. Repeated correct
+attempts do not add score. Protected routes require a bearer session; HTTP Basic
+is no longer accepted. CORS permits GET/POST/OPTIONS from the two local
+port-5173 origins. Progress timestamps use UTC with a `Z` suffix.
 
-Current scores sum each user's best correct points per puzzle; repeated correct
-attempts do not add extra score. Current mission detail is public and does not
-enforce locks. Current timestamps represent UTC but may lack an explicit timezone
-suffix. Current CORS permits only local port-5173 origins, GET/OPTIONS, and
-Authorization/Content-Type headers.
+## Authentication contract
 
-## Proposed authentication contract
-
-Use an opaque bearer token with a 24-hour expiry, stored server-side as a hash
-with user ID, expiration, and revocation state. This requires new session storage;
-it is not in the existing five-table model. Login after refresh is acceptable for
-the initial MVP: the frontend keeps the token in memory and game progress stays
-in SQLite. A persistent browser session can be designed separately later.
+An opaque bearer token expires after 24 hours. The `auth_sessions` table stores
+its hash, user ID, and expiry. Logout deletes the session. The frontend keeps
+the token in memory; log in again after browser refresh. Game progress remains
+in SQLite. Startup creates the new table without deleting existing game data.
 
 Send `Authorization: Bearer <access_token>` on protected requests. Missing,
 expired, revoked, or invalid tokens return 401. Logout revokes the token; the
-frontend clears its local session even if the request fails. Switch
-`GET /api/me/progress` from Basic to bearer in the same integration change.
+frontend clears its local session even if the request fails. `GET /api/me/progress` uses the same bearer token.
 
 ```text
 UserPublic = { id: integer, username: string }
@@ -112,28 +106,27 @@ Session = {
 | Me | None | 200 `UserPublic` | 401 |
 | Logout | None | 204, no body | 401 |
 
-Proposed validation: usernames are trimmed, case-insensitive unique, 3-32 ASCII
-letters/digits/dots/underscores/hyphens; emails are trimmed, validated, and
+Validation: usernames are trimmed, case-insensitive unique, 3-32 ASCII
+letters/digits/dots/underscores/hyphens; emails are trimmed, checked for a basic local@domain.tld shape, and
 case-insensitive unique; passwords are 12-128 characters and are never trimmed.
-Login uses the same username normalization. Existing account lookup/uniqueness
-must be migrated to honor these rules. Use random password salts for new users.
+Login uses the same username normalization. Account lookup checks case-insensitively; new usernames/emails are normalized
+before storage. New accounts use random password salts.
 Registration creates all mission progress rows atomically with the user.
 
-## Proposed mission and puzzle contract
+## Mission and puzzle contract
 
-Proposed MVP sequence is **mission orders 1 -> 2 -> 5**, subject to team agreement.
+MVP sequence is **mission orders 1 -> 2 -> 5**.
 New players start with mission 1 available and the rest locked. Missions 3 and 4
 stay visible as previews. Completing all puzzles in a mission unlocks the next
 MVP mission. There are no hint deductions, time bonuses, or puzzle-order locks.
-Existing demo progress must be reconciled with this rule before enforcing it.
+Demo progress is reconciled from solved puzzles on login and progress reads.
 
-Keep mission summaries public. Change mission detail to require bearer auth and
-return 403 for locked missions, including preview missions. This is a deliberate
-change from its current public behavior. A player's progress is always derived
+Mission summaries remain public. Mission detail requires bearer auth and
+returns 403 for locked missions, including preview missions. A player's progress is always derived
 from their token, never a client-supplied user ID.
 
-Extend `PlayerProgress` with `score: integer` and `puzzles_solved: integer`.
-Extend every `ProgressItem` with `puzzles: PuzzleProgress[]`, where:
+`PlayerProgress` includes `score: integer` and `puzzles_solved: integer`.
+Every `ProgressItem` includes `puzzles: PuzzleProgress[]`, where:
 
 ```text
 PuzzleProgress = { puzzle_id: integer, solved: boolean, points_earned: integer }
@@ -141,8 +134,7 @@ PuzzleProgress = { puzzle_id: integer, solved: boolean, points_earned: integer }
 
 `points_earned` is the best correct award for that puzzle, or zero. Return all
 mission statuses, but return an empty puzzle progress list for locked missions.
-Use UTC RFC 3339 timestamps ending in `Z` for future responses. Keep the existing
-mission and puzzle metadata fields unchanged.
+Progress responses use UTC RFC 3339 timestamps ending in `Z`. Mission and puzzle metadata fields retain their original names.
 
 ### Start/resume mission
 
@@ -199,7 +191,7 @@ extra mutation fields such as `score`, `user_id`, or `is_correct` with 422.
 
 ## Errors and frontend behavior
 
-Keep FastAPI's existing error convention for current and proposed routes:
+Keep FastAPI's existing error convention for all routes:
 
 ```json
 {"detail":"Human-readable error message"}
@@ -208,11 +200,11 @@ Keep FastAPI's existing error convention for current and proposed routes:
 Validation errors use FastAPI's `{"detail":[...]}` shape with field locations and
 messages. The frontend must handle both a string and an array; do not assume all
 errors have the same detail type. Unexpected failures return a generic 500
-without internal traces. Proposed auth failures use `WWW-Authenticate: Bearer`.
+without internal traces. Authentication failures use `WWW-Authenticate: Bearer`.
 
 | Screen/action | Calls |
 | --- | --- |
-| Landing page | GET missions; fallback is preview only |
+| Landing page | GET health + GET missions + GET leaderboard; show connection errors |
 | Register | POST register, then show login |
 | Login | POST login, then GET me/progress |
 | Dashboard | GET missions + GET me/progress |
@@ -228,8 +220,7 @@ Use backend-provided correctness, status, and scores for all gameplay decisions.
 
 ## Coordinating changes
 
-Implement proposed schemas and backend behavior with tests, then wire the
-frontend to them. Update this document and TODO statuses in the same change.
-Update CORS to allow POST when introducing these routes. Keep optional features
+Keep schemas, backend tests, frontend calls, this document, and TODO statuses
+in sync when changing a route. Keep optional features
 (hints, timers, terminal, attempt-history APIs) outside this MVP contract until
 their behavior is agreed.

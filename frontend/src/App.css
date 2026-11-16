@@ -4,6 +4,22 @@
   padding: 2.5rem 0 3rem;
 }
 
+button { border: 1px solid var(--blue); border-radius: 8px; background: #102635; color: #eef8ff; padding: .65rem 1rem; cursor: pointer; margin: .4rem .4rem .4rem 0; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.auth-panel { max-width: 38rem; }
+form { display: flex; flex-wrap: wrap; gap: .7rem; align-items: end; }
+label { display: flex; flex-direction: column; gap: .35rem; flex: 1 1 12rem; }
+input { width: 100%; box-sizing: border-box; border: 1px solid #547081; border-radius: 6px; background: #08131e; color: #fff; padding: .7rem; font: inherit; }
+.error { border-color: #ff8b8b; color: #ffb7b7; }
+.mission-play { margin: 2rem 0; }
+.puzzle { margin: 1rem 0; }
+.instructions { white-space: pre-wrap; overflow-wrap: anywhere; padding: 1rem; background: #08131e; border-radius: 8px; font: inherit; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; text-align: left; }
+th, td { padding: .8rem; border-bottom: 1px solid #304251; }
+
 .hero {
   padding: 1.5rem 0 2rem;
 }

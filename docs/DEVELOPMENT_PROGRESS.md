@@ -4,6 +4,19 @@ Team 5: Ganga Nomika Mahesh, Eshita Srivastava, Sushma Meghana Karri
 
 Course: CSE 4095 Agentic Programming
 
+The Week 1/early Week 2 sections below are historical. See the current MVP update
+and [API contract](API_CONTRACT.md) for implemented behavior.
+
+## Current playable MVP
+
+- Registration, bearer-token login/current-user/logout, and persisted 24-hour sessions.
+- Mission dashboard, start/resume, puzzle forms, answer feedback, saved progress, and leaderboard.
+- Server-side answer validation, one effective award per puzzle, and mission progression 1 -> 2 -> 5.
+- Existing demo progress reconciles from solved puzzles; missions 3 and 4 stay previews.
+- Startup creates the session table and seeds missing demo data without deleting player records.
+- API tests cover the full game loop, wrong/repeated/concurrent answers, locked missions, validation, session expiry/revocation, and player isolation.
+- Manual browser layout/accessibility checks remain on the TODO list.
+
 This note covers the initial foundation for the Week 1 progress report and the early Week 2 prototype. It does not describe a finished game.
 
 The slides and proposal sometimes say Flask. The implementation uses FastAPI, which is the stack named in the architecture and technology sections.

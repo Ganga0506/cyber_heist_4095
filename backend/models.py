@@ -1,4 +1,4 @@
-"""SQLAlchemy models for the five Cyber Heist tables.
+"""SQLAlchemy models for the Cyber Heist game and session tables.
 
 These classes follow database/schema.sql. SQLite may show DATETIME in the
 SQLAlchemy-created database and TEXT in the hand-written script. Both store
@@ -44,6 +44,14 @@ class User(Base):
 
     attempts = relationship("PuzzleAttempt", back_populates="user")
     progress = relationship("UserProgress", back_populates="user")
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    token_hash = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
 
 
 class Mission(Base):
