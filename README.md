@@ -12,6 +12,10 @@ The game uses fictional clues and simulated systems only. It does not connect to
 
 ## Technology stack
 
+Development references: [TODO list](TODO.md) and
+[frontend/backend API contract](docs/API_CONTRACT.md). The contract separates
+implemented endpoints from proposed MVP endpoints.
+
 - Frontend: React, JavaScript, HTML, CSS (Vite)
 - Backend: Python, FastAPI
 - Database: SQLite with SQLAlchemy
@@ -89,6 +93,24 @@ These fictional players exist so the team can try `GET /api/me/progress`. They a
 | cipher.owl | cipher.owl@example.com | dev-only-cipher |
 | byte.lynx | byte.lynx@example.com | dev-only-byte |
 | glitch.moth | glitch.moth@example.com | dev-only-glitch |
+
+## Start frontend and backend together
+
+Install Python 3.11+ and Node.js first. From the project root in PowerShell:
+
+```powershell
+.\start.cmd
+```
+
+The launcher creates a backend virtual environment and installs missing dependencies
+on the first run. It then starts both servers. Open http://localhost:5173 for the
+frontend or http://127.0.0.1:8000/docs for the API. Press Ctrl+C to stop both.
+The API automatically creates and seeds the SQLite database at startup.
+
+You can also run `python start.py` (including on macOS/Linux). After changing
+dependency files, run `python start.py --install` to reinstall dependencies.
+If installation fails, the launcher prints the error and stops; fix the reported
+dependency issue and rerun the same command.
 
 ## Backend setup
 
