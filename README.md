@@ -10,6 +10,10 @@ The game uses fictional clues and simulated systems only. It does not connect to
 - Eshita Srivastava
 - Sushma Meghana Karri
 
+## Run App (frontend + backend)
+
+python start.py
+
 ## Technology stack
 
 - Frontend: React, JavaScript, HTML, CSS (Vite)
