@@ -9,13 +9,25 @@ and [API contract](API_CONTRACT.md) for implemented behavior.
 
 ## Current playable MVP
 
+- Task 4 completed November 17, 2026: rebuilt the frontend with separate hash
+  routes for mission control, login, registration, mission play, and leaderboard;
+  shared lobby navigation and an interactive city map; a guest welcome screen;
+  mission/leaderboard route guards; responsive dark styling; and one puzzle at
+  a time with objective navigation and completion feedback. Ten Playwright tests
+  pass on desktop/mobile with controlled API responses. Keyboard skip navigation,
+  labels, offline retry, expiry, guest access, map selection, and overflow are covered; screenshots
+  were visually reviewed at 1440px and 390px.
+- Task 3 verified November 17, 2026: 33 backend tests pass. Additional regression
+  coverage confirms partial-mission resume after logout/login, rejection of
+  client-supplied scoring/identity/status fields, and isolation of another
+  player's progress after correct answers and blocked attempts.
 - Registration, bearer-token login/current-user/logout, and persisted 24-hour sessions.
 - Mission dashboard, start/resume, puzzle forms, answer feedback, saved progress, and leaderboard.
 - Server-side answer validation, one effective award per puzzle, and mission progression 1 -> 2 -> 5.
 - Existing demo progress reconciles from solved puzzles; missions 3 and 4 stay previews.
 - Startup creates the session table and seeds missing demo data without deleting player records.
 - API tests cover the full game loop, wrong/repeated/concurrent answers, locked missions, validation, session expiry/revocation, and player isolation.
-- Manual browser layout/accessibility checks remain on the TODO list.
+- Frontend browser layout and keyboard checks are recorded under Task 4 above.
 
 This note covers the initial foundation for the Week 1 progress report and the early Week 2 prototype. It does not describe a finished game.
 

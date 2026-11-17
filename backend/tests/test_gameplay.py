@@ -3,6 +3,8 @@
 from datetime import timedelta
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
 from gameplay import token_digest
 from models import AuthSession, utc_now
 from seed import DEMO_PUZZLES
@@ -99,3 +101,57 @@ def test_simultaneous_correct_answers_award_once(client):
     assert all(r.status_code == 200 for r in responses)
     assert sorted(r.json()["points_awarded"] for r in responses) == [0, 100]
     assert client.get("/api/me/progress", headers=headers).json()["score"] == 100
+
+
+@pytest.mark.parametrize("field,value", [
+    ("user_id", 1), ("is_correct", True), ("score", 99999),
+    ("points_awarded", 99999), ("status", "completed"),
+])
+def test_attempt_rejects_client_controlled_game_state(client, field, value):
+    headers = new_agent(client)
+    client.post("/api/missions/1/start", headers=headers)
+    answer = next(p["answer"] for p in DEMO_PUZZLES if p["id"] == 1)
+    response = client.post("/api/puzzles/1/attempts", headers=headers,
+                           json={"answer": answer, field: value})
+    assert response.status_code == 422
+    progress = client.get("/api/me/progress", headers=headers).json()
+    assert progress["score"] == 0
+    assert not any(p["solved"] for p in progress["missions"][0]["puzzles"])
+    assert progress["missions"][1]["status"] == "locked"
+
+
+def test_partial_mission_survives_logout_and_resume(client):
+    headers = new_agent(client)
+    client.post("/api/missions/1/start", headers=headers)
+    answer = next(p["answer"] for p in DEMO_PUZZLES if p["id"] == 1)
+    response = client.post("/api/puzzles/1/attempts", headers=headers, json={"answer": answer})
+    assert response.status_code == 200
+    before = client.get("/api/me/progress", headers=headers).json()
+    assert before["missions"][0]["status"] == "in_progress"
+    assert [p["solved"] for p in before["missions"][0]["puzzles"]] == [True, False]
+    assert client.post("/api/auth/logout", headers=headers).status_code == 204
+    login = client.post("/api/auth/login", json={
+        "username": "fresh.agent", "password": "fresh-password-123",
+    }).json()
+    headers = {"Authorization": "Bearer " + login["access_token"]}
+    resumed = client.post("/api/missions/1/start", headers=headers)
+    assert resumed.status_code == 200
+    assert resumed.json() == before["missions"][0]
+    assert client.get("/api/me/progress", headers=headers).json() == before
+
+
+def test_answers_and_locked_attempts_preserve_other_player_progress(client):
+    headers = new_agent(client)
+    other = new_agent(client, "other.agent")
+    other_before = client.get("/api/me/progress", headers=other).json()
+    client.post("/api/missions/1/start", headers=headers)
+    for puzzle in (p for p in DEMO_PUZZLES if p["mission_id"] == 1):
+        response = client.post(f"/api/puzzles/{puzzle['id']}/attempts", headers=headers,
+                               json={"answer": puzzle["answer"]})
+        assert response.status_code == 200
+    assert client.get("/api/me/progress", headers=headers).json()["missions"][1]["status"] == "available"
+    locked_puzzle = next(p for p in DEMO_PUZZLES if p["mission_id"] == 2)
+    response = client.post(f"/api/puzzles/{locked_puzzle['id']}/attempts", headers=other,
+                           json={"answer": locked_puzzle["answer"]})
+    assert response.status_code == 403
+    assert client.get("/api/me/progress", headers=other).json() == other_before

@@ -32,6 +32,10 @@ manual browser/keyboard/mobile acceptance remains below.
 
 ## 3. Backend: playable game loop
 
+Verified November 17, 2026: all items below are implemented. The backend suite
+passes 33 tests, including partial-mission resume after logout/login, rejection
+of client-controlled game state, player isolation, and concurrent scoring.
+
 - [x] Enforce the agreed mission access rules on the server.
 - [x] Add mission-start endpoint; allow resuming without resetting progress.
 - [x] Add per-puzzle solved progress so the browser can resume after refresh.
@@ -45,6 +49,15 @@ manual browser/keyboard/mobile acceptance remains below.
 
 ## 4. Frontend
 
+Completed November 17, 2026: separate dashboard, login, registration, mission,
+and leaderboard routes with a shared game lobby and interactive mission map.
+Guests see a welcome screen; mission and leaderboard pages require login in the
+frontend. Ten Playwright browser tests
+pass across desktop and mobile using controlled API responses; screenshots were
+reviewed at 1440px and 390px. Browser tests cover gameplay feedback, completion,
+registration, logout, locked access, session expiry, offline retry, form labels,
+keyboard skip navigation, guest route guards, map selection, and horizontal overflow.
+
 - [x] Create a shared API client for JSON, auth headers, errors, and session expiry.
 - [x] Add registration/login forms with pending, validation, and failure states.
 - [x] Add session-aware navigation and logout; keep bearer tokens in memory for the proposed MVP.
@@ -55,7 +68,7 @@ manual browser/keyboard/mobile acceptance remains below.
 - [x] Build leaderboard screen using the existing endpoint.
 - [x] Handle loading, empty results, API failure, locked missions, and expired sessions.
 - [x] Show a connection error and retry action when offline; gameplay requires the API.
-- [ ] Check keyboard navigation, form labels, and mobile layout.
+- [x] Check keyboard navigation, form labels, and mobile layout.
 
 ## 5. Integration and acceptance
 
@@ -66,6 +79,23 @@ manual browser/keyboard/mobile acceptance remains below.
 - [x] Verify a second account cannot read or modify another player's progress.
 - [x] Run `python -m pytest` in `backend` (26 passed) and `npm run build` in `frontend`.
 - [x] Update README, progress notes, and contract to match the implemented behavior.
+
+## 6. Interactive coding and learning progression (start with round 1 / mission 1)
+
+Planned enhancement: make puzzles hands-on coding lessons with visible learning
+progress, rather than relying on question-and-answer submissions. Deliver this
+experience for mission 1 first, then extend it to later missions.
+
+- [ ] Define a learning objective for each round 1 puzzle and sequence challenges from guided examples to independent coding.
+- [ ] Redesign round 1 puzzles around writing, editing, debugging, and testing code; for example, decode an encoded clue with a program or inspect fictional evidence with a small script.
+- [ ] Add short interactive explanations, starter code, and step-by-step hints that help players understand the concept and improve their solution.
+- [ ] Explore an in-game code editor and compiler/interpreter so players can run and test code without leaving the mission; choose an initial language and execution approach.
+- [ ] If code execution is adopted, isolate it from the game server and player data, with execution time/resource limits and a way to stop runaway code.
+- [ ] Show input/output, compiler or runtime errors, and test-case results with actionable feedback so players can experiment and retry.
+- [ ] Validate code against meaningful test cases instead of checking only a final text answer; keep scoring and unlock decisions on the server.
+- [ ] Track and save code drafts, completed learning steps, and concepts practiced so players can resume and see their learning progress.
+- [ ] Add a brief explanation after each solved puzzle and a round 1 recap of what the player learned, with an option to replay and practice.
+- [ ] Verify round 1 end to end: learn a concept -> edit code -> run tests -> understand feedback -> improve the solution -> complete the challenge and unlock the next step.
 
 ## Later
 

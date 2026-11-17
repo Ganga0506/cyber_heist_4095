@@ -18,7 +18,7 @@ Development references: [TODO list](TODO.md) and
 - Frontend: React, JavaScript, HTML, CSS (Vite)
 - Backend: Python, FastAPI
 - Database: SQLite with SQLAlchemy
-- Tests: pytest
+- Tests: pytest and Playwright
 - Version control: GitHub
 
 The proposal and one architecture slide mention Flask. The project is standardized on FastAPI.
@@ -58,7 +58,7 @@ cyberheist/
     schema.sql       executable table script
     seed.sql         executable demo data script
     schema_diagram.md
-  frontend/          React landing page
+  frontend/          React app with separate pages and shared components
   docs/
     DEVELOPMENT_PROGRESS.md
 ```
@@ -170,7 +170,22 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The dev server proxies `/api` to FastAPI on port 8000. Start the API first. The page shows API connection errors and offers a Refresh data button when it is unavailable.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The dev server proxies `/api` to FastAPI on port 8000. Start the API first. The page shows API connection errors and offers a Retry connection button when it is unavailable.
+
+Guests see a welcome screen and login/registration links. After login, mission
+control becomes an interactive city map: select a location to inspect its clues,
+lock requirements, saved progress, and start/resume action. The map path follows
+missions 1 -> 2 -> 5, with 3 and 4 shown as future districts. The leaderboard is
+also available from the signed-in navigation. Direct links to missions or the
+leaderboard show the login form for guests. Public API endpoints retain their
+existing contract; the frontend does not request mission or leaderboard data
+until login.
+
+Pages use hash routes so navigation, direct links, and browser back/forward work
+without server rewrite rules: `#/` (mission control), `#/login`, `#/register`,
+`#/missions/1` (replace 1 with the mission ID), and `#/leaderboard`.
+Page components live in `frontend/src/pages`; the shared navigation/layout and
+interactive map live in `frontend/src/components`.
 
 Log in with a demo account or register a new one, then start an available mission. Correct answers save progress and unlock the next MVP mission. Refreshing the browser requires logging in again; saved scores and progress persist.
 
@@ -189,6 +204,17 @@ python -m pytest
 ```
 
 Tests use a temporary SQLite file. They do not read or write `backend/cyberheist.db`.
+
+From the `frontend` directory, run `npm run test:ui` for ten Playwright browser
+checks across desktop (1440px) and mobile (390px). The tests start their own Vite
+server on port 5178 and use controlled API responses without changing player data.
+They cover registration/login, puzzle feedback/completion, leaderboard/logout,
+locked routes, session expiry, offline retry, keyboard skip navigation, labels,
+guest route guards, map selection, and horizontal overflow. Welcome and map
+screenshots are saved under `test-results/`.
+Windows uses installed Microsoft Edge; other platforms use Chromium (install it
+first with `npx playwright install chromium`). Set `PLAYWRIGHT_CHANNEL` to override
+the browser channel.
 
 ## Check the demo records
 

@@ -27,6 +27,8 @@ env/
 node_modules/
 dist/
 .vite/
+test-results/
+playwright-report/
 npm-debug.log*
 yarn-error.log*
 
