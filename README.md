@@ -12,7 +12,9 @@ The game uses fictional clues and simulated systems only. It does not connect to
 
 ## Run App (frontend + backend)
 
+```bash
 python start.py
+```
 
 ## Technology stack
 
