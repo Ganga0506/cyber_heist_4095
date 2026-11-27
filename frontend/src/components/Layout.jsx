@@ -1,4 +1,6 @@
-﻿export function Layout({
+import { CoinAmount } from "./CoinAmount";
+
+export function Layout({
   children,
   route,
   session,
@@ -51,10 +53,20 @@
                 </a>
               </nav>
               <div className="lobby-account">
-                <span className="player-score">
-                  {progress?.score ?? 0} <small>PTS</small>
-                </span>
+                {progress?.coins != null && (
+                  <span className="player-score">
+                    <CoinAmount amount={progress.coins} />
+                  </span>
+                )}
                 <span className="player-name">{session.user.username}</span>
+                {import.meta.env.VITE_MFA === "1" && (
+                  <a
+                    href="#/security"
+                    aria-current={route === "/security" ? "page" : undefined}
+                  >
+                    Security
+                  </a>
+                )}
                 <button disabled={busy} onClick={logout}>
                   Log out ↗
                 </button>

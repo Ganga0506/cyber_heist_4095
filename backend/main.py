@@ -13,14 +13,18 @@ Scores are calculated by the server.
 
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Mission, Puzzle, PuzzleAttempt, User, UserProgress
+from models import AccountMfa, Mission, Puzzle, PuzzleAttempt, User, UserProgress
 from schemas import (
     HealthResponse,
     LeaderboardResponse,
@@ -28,10 +32,19 @@ from schemas import (
     MissionSummary,
     PuzzlePublic,
 )
-from seed import init_db, seed
+from seed import DEMO_USERS, init_db, seed
 from database import SessionLocal
-from gameplay import router, current_user, accessible_mission
+from gameplay import MISSION_COIN_REWARD, accessible_mission, completed_mission_progress, current_user, router
 from learning import lesson_for
+from economy import puzzle_reward_totals
+from google_signin import public_origin, router as google_router
+from request_guard import RequestGuard
+from recovery import router as recovery_router
+from mfa import mfa_encryption
+from mfa_routes import router as mfa_router
+from security import breached_password
+
+PRODUCTION = os.getenv("CYBERHEIST_ENV") == "production"
 
 # Local Vite origins only. Add a new origin here and in README.md together.
 LOCAL_FRONTEND_ORIGINS = [
@@ -40,17 +53,28 @@ LOCAL_FRONTEND_ORIGINS = [
 ]
 
 SCORING_NOTE = (
-    "Score is the sum of each player's best correct attempt on each puzzle. "
-    "A repeated correct attempt does not increase the score. The total is "
-    "calculated from puzzle_attempts and is not stored on the user."
+    "Rank is based on lifetime puzzle and mission coins, then distinct solved puzzles and username. "
+    "The legacy score field is calculated from puzzle_attempts."
 )
 
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    if PRODUCTION:
+        public_origin()
+        breached_password("startup-corpus-probe")
+        if not os.getenv("DATABASE_URL") or ":memory:" in os.environ["DATABASE_URL"]:
+            raise RuntimeError("Production requires an explicit persistent DATABASE_URL")
+        init_db()
+        with SessionLocal() as db:
+            if mfa_encryption() is None and db.query(AccountMfa).filter(AccountMfa.secret.is_not(None)).first():
+                raise RuntimeError("Production has MFA accounts but no authenticator encryption key")
+            if db.query(User.id).filter(User.email.in_([row["email"] for row in DEMO_USERS])).first():
+                raise RuntimeError("Production database contains development accounts")
+            seed(db, demo=False)
     # Tests set this to 0 so pytest does not create the development database.
-    if os.getenv("CYBERHEIST_AUTO_CREATE", "1") != "0":
+    elif os.getenv("CYBERHEIST_AUTO_CREATE", "1") != "0":
         init_db()
         with SessionLocal() as db:
             seed(db)
@@ -62,15 +86,30 @@ app = FastAPI(
     version="0.1.0",
     summary="Early prototype for the Cyber Heist escape-room game.",
     lifespan=lifespan,
+    docs_url=None if PRODUCTION else "/docs",
+    redoc_url=None if PRODUCTION else "/redoc",
+    openapi_url=None if PRODUCTION else "/openapi.json",
 )
 
+app.add_middleware(RequestGuard, production=PRODUCTION)
+if PRODUCTION:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=[urlsplit(public_origin()).hostname])
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=LOCAL_FRONTEND_ORIGINS,
+    allow_origins=[public_origin()] if PRODUCTION else LOCAL_FRONTEND_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_request, error):
+    return JSONResponse({"detail": [
+        {"loc": item["loc"], "msg": item["msg"]} if item["type"] != "extra_forbidden"
+        else {"loc": ["body"], "msg": "Unexpected field"}
+        for item in error.errors()
+    ]}, status_code=422)
 
 
 @app.get("/")
@@ -152,11 +191,21 @@ def leaderboard(db: Session = Depends(get_db)):
     )
     score = func.coalesce(func.sum(best_attempt.c.points), 0)
     solved = func.coalesce(func.count(best_attempt.c.puzzle_id), 0)
+    rewards = (
+        completed_mission_progress(db)
+        .with_entities(UserProgress.user_id, (func.count() * MISSION_COIN_REWARD).label("coins"))
+        .group_by(UserProgress.user_id)
+        .subquery()
+    )
+    puzzle_rewards = puzzle_reward_totals(db).subquery()
+    coins = func.coalesce(rewards.c.coins, 0) + func.coalesce(puzzle_rewards.c.coins, 0)
     rows = (
-        db.query(User.username, score.label("score"), solved.label("puzzles_solved"))
+        db.query(User.username, score.label("score"), solved.label("puzzles_solved"), coins.label("coins_earned"))
         .outerjoin(best_attempt, best_attempt.c.user_id == User.id)
-        .group_by(User.id, User.username)
-        .order_by(score.desc(), User.username.asc())
+        .outerjoin(rewards, rewards.c.user_id == User.id)
+        .outerjoin(puzzle_rewards, puzzle_rewards.c.user_id == User.id)
+        .group_by(User.id, User.username, rewards.c.coins, puzzle_rewards.c.coins)
+        .order_by(coins.desc(), solved.desc(), User.username.asc())
         .all()
     )
     entries = [
@@ -165,6 +214,7 @@ def leaderboard(db: Session = Depends(get_db)):
             "username": row.username,
             "score": int(row.score or 0),
             "puzzles_solved": int(row.puzzles_solved or 0),
+            "coins_earned": row.coins_earned,
         }
         for index, row in enumerate(rows, start=1)
     ]
@@ -173,3 +223,6 @@ def leaderboard(db: Session = Depends(get_db)):
 
 
 app.include_router(router)
+app.include_router(google_router)
+app.include_router(recovery_router)
+app.include_router(mfa_router)

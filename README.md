@@ -14,6 +14,8 @@ The game uses fictional clues and simulated systems only. It does not connect to
 
 Development references: [TODO list](TODO.md) and
 [frontend/backend API contract](docs/API_CONTRACT.md). The contract describes the implemented API used by the frontend.
+Use the [production security runbook](docs/PRODUCTION_SECURITY.md) for HTTPS,
+Google sign-in, password recovery, MFA, and deployment verification.
 
 - Frontend: React, JavaScript, HTML, CSS (Vite)
 - Backend: Python, FastAPI
@@ -78,13 +80,18 @@ Leaderboard scores are not stored on the user. `GET /api/leaderboard` adds up th
 
 `database/schema.sql` and `database/seed.sql` are executable SQLite scripts. They are source files maintained with the Python models, not dumps exported from a live database. The app itself creates the database through SQLAlchemy.
 
-Passwords and puzzle answers are not stored as plaintext. Passwords use PBKDF2-HMAC-SHA256. Answers use SHA-256 of the trimmed, case-folded text.
+Password accounts use salted Argon2id. Existing PBKDF2-HMAC-SHA256 hashes
+upgrade on successful login. Text puzzle answers use SHA-256 of the trimmed,
+case-folded text.
 
 SQLite foreign keys are turned on for every connection.
 
 ## Development-only demo accounts
 
-These fictional players exist so the team can try `GET /api/me/progress`. Log in through the frontend with any of these accounts. They are not production credentials. Do not reuse the passwords anywhere else. The demo hashes use a fixed salt so the SQL script and the Python seed match. Replace that approach before any real deployment.
+These fictional players exist so the team can try `GET /api/me/progress`.
+Log in through the local frontend with any of these accounts. The demo
+hashes use a fixed salt so the SQL script and Python seed match. Production
+uses a catalog-only seed and refuses databases containing demo accounts.
 
 | Username | Email | Password |
 | --- | --- | --- |

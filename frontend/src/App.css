@@ -1781,3 +1781,108 @@ footer {
     font-size: 32px;
   }
 }
+
+.coin-amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38em;
+  color: #ffde80;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.coin-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.05em;
+  height: 1.05em;
+  flex: 0 0 auto;
+  border: 1px solid #ffe5a0;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #ffedac, #e9a639 65%, #b76b20);
+  box-shadow: inset 0 0 0 0.11em #b97726, 0 0.09em #6f401b;
+}
+.coin-icon::after {
+  content: "";
+  width: 0.34em;
+  height: 0.34em;
+  border: 1px solid #884d17;
+  background: #ffdc73;
+  transform: rotate(45deg);
+}
+.puzzle-reward {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.35em 0.65em;
+  border: 1px solid #745936;
+  border-radius: 8px;
+  background: #241f19;
+  color: #ffecaa;
+  font-size: 0.85rem;
+}
+.puzzle-track {
+  width: 100%;
+  display: block;
+  height: 0.6rem;
+  accent-color: var(--accent);
+  margin: 0.5rem 0 1rem;
+}
+.hint-shop {
+  margin: 1.4rem 0;
+  padding: 1rem;
+  background: #10151d;
+  border: 1px solid #394353;
+  border-radius: 12px;
+}
+.hint-shop-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+.hint-shop-heading h3,
+.hint-cards h4,
+.hint-cards p {
+  margin: 0;
+}
+.hint-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.hint-cards > li {
+  padding: 0.75rem;
+  border: 1px solid #394353;
+  border-radius: 8px;
+  background: #1a212d;
+}
+.hint-cards > .hint-ready {
+  background: #25321e;
+  border-color: #4d6336;
+}
+.hint-cards > .hint-owned {
+  border-color: #4d6336;
+}
+.hint-cards button {
+  gap: 0.45rem;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding-inline: 0.35em;
+}
+.hint-cards p,
+.hint-cards small {
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 540px) {
+  .hint-cards {
+    grid-template-columns: 1fr;
+  }
+}

@@ -38,6 +38,16 @@
             ? "Create an account to save your progress."
             : "Sign in to pick up where you left off."}
         </p>
+        {import.meta.env.VITE_GOOGLE_SIGN_IN === "1" && (
+          <a className="button" href="/api/auth/google/start">
+            Sign in with Google
+          </a>
+        )}
+        {!register && import.meta.env.VITE_PASSWORD_RECOVERY === "1" && (
+          <p>
+            <a href="#/recover-password">Forgot your password?</a>
+          </p>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -90,6 +100,19 @@
               Password: at least 12 characters.
             </small>
           )}
+          {!register && (
+            <details>
+              <summary>Use an authenticator or backup code</summary>
+              <label htmlFor="mfa-code">Authenticator or backup code</label>
+              <input
+                id="mfa-code"
+                name="mfa_code"
+                type="text"
+                maxLength={32}
+                autoComplete="one-time-code"
+              />
+            </details>
+          )}
           <button className="primary" disabled={busy}>
             {busy
               ? "Connecting…"
@@ -105,7 +128,7 @@
             {register ? "Log in" : "Create account"}
           </a>
         </p>
-        {!register && (
+        {!register && import.meta.env.DEV && (
           <details>
             <summary>Try the demo account</summary>
             <p>

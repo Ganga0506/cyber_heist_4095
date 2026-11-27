@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS puzzle_attempts (
     CHECK (is_correct = 1 OR points_earned = 0)
 );
 
+CREATE TABLE IF NOT EXISTS hint_purchases (
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    puzzle_id INTEGER NOT NULL REFERENCES puzzles (id),
+    hint_index INTEGER NOT NULL,
+    price INTEGER NOT NULL,
+    PRIMARY KEY (user_id, puzzle_id, hint_index)
+);
+
 CREATE TABLE IF NOT EXISTS lesson_drafts (
     user_id INTEGER NOT NULL REFERENCES users (id),
     puzzle_id INTEGER NOT NULL REFERENCES puzzles (id),
@@ -88,3 +96,38 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_auth_sessions_user_id ON auth_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS google_identities (
+    subject TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS google_flows (
+    token_hash TEXT PRIMARY KEY NOT NULL,
+    verifier TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS google_handoffs (
+    token_hash TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users (id),
+    expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS account_mfa (
+    user_id INTEGER PRIMARY KEY REFERENCES users (id),
+    secret TEXT,
+    pending TEXT,
+    pending_expires_at TEXT,
+    last_step INTEGER NOT NULL DEFAULT -1,
+    recovery_hashes JSON NOT NULL DEFAULT '[]',
+    failures INTEGER NOT NULL DEFAULT 0,
+    blocked_until TEXT
+);

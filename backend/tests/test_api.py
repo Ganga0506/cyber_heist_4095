@@ -77,6 +77,10 @@ def test_leaderboard_uses_best_correct_attempt(client):
     # nova has two correct attempts on puzzle 1. The score counts that puzzle once.
     assert by_name["nova.agent"]["score"] == 280
     assert by_name["nova.agent"]["puzzles_solved"] == 3
+    assert by_name["nova.agent"]["coins_earned"] == 37
+    assert by_name["pixel.fox"]["coins_earned"] == 62
+    assert by_name["glitch.moth"]["coins_earned"] == 65
+    assert by_name["cipher.owl"]["coins_earned"] == 0
     assert by_name["byte.lynx"]["score"] == 0
     assert by_name["cipher.owl"]["score"] == 0
     assert [entry["username"] for entry in payload["entries"]] == [

@@ -352,9 +352,9 @@ def init_db() -> None:
     Base.metadata.create_all(bind=get_engine())
 
 
-def seed(session: Session) -> None:
-    """Insert demo rows that are not already present."""
-    for row in DEMO_USERS:
+def seed(session: Session, *, demo: bool = True) -> None:
+    """Insert the mission catalog and optionally the local demo accounts."""
+    for row in DEMO_USERS if demo else ():
         exists = session.query(User).filter_by(username=row["username"]).one_or_none()
         if exists is None:
             session.add(
@@ -410,7 +410,7 @@ def seed(session: Session) -> None:
             )
     session.flush()
 
-    for user_id, mission_id, status, completed_at in DEMO_PROGRESS:
+    for user_id, mission_id, status, completed_at in DEMO_PROGRESS if demo else ():
         exists = (
             session.query(UserProgress)
             .filter_by(user_id=user_id, mission_id=mission_id)
@@ -427,7 +427,7 @@ def seed(session: Session) -> None:
             )
     session.flush()
 
-    for user_id, puzzle_id, is_correct, points_earned, attempted_at in DEMO_ATTEMPTS:
+    for user_id, puzzle_id, is_correct, points_earned, attempted_at in DEMO_ATTEMPTS if demo else ():
         exists = (
             session.query(PuzzleAttempt)
             .filter_by(

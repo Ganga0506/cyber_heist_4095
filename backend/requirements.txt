@@ -5,4 +5,9 @@ sqlalchemy==2.1.8
 pydantic==2.14.3
 # Used by the FastAPI test client.
 httpx2==2.16.0
-pytest==8.4.2
+pytest==9.0.3
+argon2-cffi==25.1.0
+google-auth==2.48.0
+requests==2.33.0
+cryptography==50.0.2
+pyotp==2.9.0

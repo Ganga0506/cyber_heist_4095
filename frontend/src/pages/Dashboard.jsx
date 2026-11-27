@@ -40,9 +40,6 @@ export function Dashboard({ missions, progress, session, loading }) {
           <strong>{session.user.username}</strong> / AGENT
         </span>
         <span>
-          <strong>{progress?.score ?? 0}</strong> points
-        </span>
-        <span>
           <strong>{completed} / 3</strong> territories cleared
         </span>
         <span>

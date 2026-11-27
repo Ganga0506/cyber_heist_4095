@@ -1,4 +1,6 @@
-﻿import { useEffect, useState } from "react";
+import { CoinAmount } from "../components/CoinAmount";
+import { HintShop } from "../components/HintShop";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { CodeLesson } from "../components/CodeLesson";
 export function MissionPage({
@@ -77,6 +79,11 @@ export function MissionPage({
     solved = puzzleProgress?.solved,
     complete = saved?.status === "completed";
   const lessons = mission.puzzles.filter((p) => p.lesson);
+  const nextMission = progress?.missions.find(
+    (item) =>
+      item.mission_order > mission.mission_order &&
+      ["available", "in_progress"].includes(item.status),
+  );
   const lessonSolved = (p) =>
     saved?.puzzles.some((item) => item.puzzle_id === p.id && item.solved);
   async function submit(e) {
@@ -93,16 +100,26 @@ export function MissionPage({
           correct: result.is_correct,
           text: result.is_correct
             ? result.already_solved
-              ? "Already solved. Your points are safely recorded."
-              : `Access granted. +${result.points_awarded} points earned.`
+              ? "Puzzle already solved."
+              : "Access granted. Puzzle solved."
             : "Access denied. Take another look at the clues and try again.",
         },
       }));
-      if (result.mission.status === "completed")
+      if (result.coins_awarded > 0 || result.mission.status === "completed")
         setNotice(
-          result.unlocked_mission_ids.length
-            ? "Mission complete. Your next mission is now unlocked."
-            : "Operation complete. You cracked the final vault!",
+          <span>
+            {result.mission.status !== "completed"
+              ? "Puzzle cleared!"
+              : result.unlocked_mission_ids.length
+                ? "Mission complete. Your next mission is now unlocked."
+                : "Operation complete. You cracked the final vault!"}
+            {result.coins_awarded > 0 && (
+              <>
+                {" "}
+                <CoinAmount amount={result.coins_awarded} reward />
+              </>
+            )}
+          </span>,
         );
       await refresh(token);
     });
@@ -126,35 +143,60 @@ export function MissionPage({
         </span>
       </div>
       {complete && (
-        <div className="completion panel">
+        <div className="completion panel" aria-labelledby="victory-title">
           <div>
-            <h2>Mission accomplished.</h2>
-            {lessons.length ? (
+            <h2 id="victory-title">Mission accomplished.</h2>
+            <p>
+              {mission.puzzles.length} puzzles cleared
+              {progress?.mission_coin_reward > 0 && (
+                <>
+                  {" "}
+                  · Mission bonus{" "}
+                  <CoinAmount amount={progress.mission_coin_reward} reward />
+                </>
+              )}
+            </p>
+            {lessons.length > 0 && (
               <ul>
                 {lessons.map(({ id, lesson }) => (
                   <li key={id}>{lesson.recap}</li>
                 ))}
               </ul>
-            ) : (
-              <p>
-                All puzzle answers and points are saved. Ready for your next
-                move?
-              </p>
             )}
           </div>
-          <a className="button primary" href="#/">
-            Continue operation ↗
+          <a
+            className="button primary"
+            href={
+              nextMission
+                ? `#/missions/${nextMission.mission_id}`
+                : "#/leaderboard"
+            }
+          >
+            {nextMission ? "Next mission" : "View leaderboard"}
           </a>
         </div>
       )}
       <div className="play-layout">
         <aside className="panel puzzle-nav">
           <p className="eyebrow">MISSION OBJECTIVES</p>
-          {lessons.length > 0 && (
+          {progress?.mission_coin_reward != null && (
             <p>
-              {lessons.filter(lessonSolved).length} of {lessons.length} lessons
-              complete
+              Mission reward{" "}
+              <CoinAmount amount={progress.mission_coin_reward} reward />
             </p>
+          )}
+          <p>
+            {mission.puzzles.filter(lessonSolved).length} of{" "}
+            {mission.puzzles.length} {lessons.length ? "lessons" : "puzzles"}{" "}
+            complete
+          </p>
+          {mission.puzzles.length > 0 && (
+            <progress
+              className="puzzle-track"
+              aria-label="Puzzles completed"
+              value={mission.puzzles.filter(lessonSolved).length}
+              max={mission.puzzles.length}
+            />
           )}
           {mission.puzzles.map((p, i) => (
             <button
@@ -174,10 +216,7 @@ export function MissionPage({
                   ? "✓"
                   : `0${i + 1}`}
               </span>
-              <span>
-                {p.lesson?.title ?? p.title}
-                <small>{p.points} points</small>
-              </span>
+              <span>{p.lesson?.title ?? p.title}</span>
             </button>
           ))}
           <p className="save-note">
@@ -192,7 +231,12 @@ export function MissionPage({
               <span className="eyebrow">
                 PUZZLE {selected + 1} OF {mission.puzzles.length}
               </span>
-              <span className="badge">{puzzle.points} PTS</span>
+              {puzzleProgress?.coin_reward > 0 && (
+                <span className="puzzle-reward">
+                  {solved ? "Reward earned" : "Puzzle reward"}{" "}
+                  <CoinAmount amount={puzzleProgress.coin_reward} reward />
+                </span>
+              )}
             </div>
             <h2>{puzzle.lesson?.title ?? puzzle.title}</h2>
             {puzzle.lesson ? (
@@ -227,7 +271,7 @@ export function MissionPage({
                 </div>
                 {solved ? (
                   <div className="solved-message" role="status">
-                    ✓ Puzzle solved. Your points have been recorded.
+                    ✓ Puzzle solved.
                   </div>
                 ) : (
                   <form onSubmit={submit} aria-busy={busy}>
@@ -260,7 +304,7 @@ export function MissionPage({
                     </button>
                   </form>
                 )}
-                {feedback[puzzle.id] && (
+                {!solved && feedback[puzzle.id] && (
                   <p
                     className={`answer-feedback ${feedback[puzzle.id].correct ? "correct" : "incorrect"}`}
                     role="status"
@@ -269,6 +313,18 @@ export function MissionPage({
                   </p>
                 )}
               </>
+            )}
+            {puzzleProgress?.hint_prices?.length > 0 && (
+              <HintShop
+                puzzleId={puzzle.id}
+                prices={puzzleProgress.hint_prices}
+                hints={puzzleProgress.purchased_hints ?? []}
+                coins={progress.coins}
+                token={token}
+                busy={busy}
+                perform={perform}
+                refresh={refresh}
+              />
             )}
             {solved && selected < mission.puzzles.length - 1 && (
               <button

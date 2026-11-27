@@ -95,19 +95,34 @@ keyboard skip navigation, guest route guards, map selection, and horizontal over
 
 ## 7. Production security
 
-- [ ] Define the threat model, prioritize controls by risk, and set release criteria based on verified mitigations and documented residual risks.
-- [ ] Add Google sign-in using OpenID Connect with authorization code and PKCE. Validate issuer, audience, signature, expiration, state, and nonce. Define secure account linking and recovery.
-- [ ] Review existing password hashing and plan a migration to a tuned, salted Argon2id configuration with rehash on login. Add breached-password screening, secure password recovery, and optional MFA.
-- [ ] Harden session expiration, rotation, and revocation. Review token storage and apply Secure, HttpOnly, and SameSite settings plus CSRF protection wherever cookies authenticate requests.
-- [ ] Audit server-side ownership and authorization on every protected endpoint, including drafts, scores, and mission unlocks. Test cross-account access and privilege escalation.
-- [ ] Prevent SQL, command, and template injection through parameterized queries, strict input schemas, and avoidance of shell and dynamic evaluation. Verify with defensive regression tests.
-- [ ] Protect against cross-site scripting with context-aware output encoding, safe rendering, sanitization where rich text is needed, and a restrictive Content Security Policy.
-- [ ] Review SSRF, path traversal, unsafe uploads, and open redirects wherever features accept URLs, paths, files, or redirect destinations.
-- [ ] Require HTTPS, configure HSTS and other browser security headers, and restrict CORS to approved origins.
-- [ ] Limit login and recovery abuse, automated submissions, request sizes, and resource consumption using rate limits, quotas, and timeouts.
-- [ ] Protect production secrets and private data using least privilege, secret rotation, retention limits, and tested backups and restores.
-- [ ] Scan dependencies and secrets in CI, patch promptly, and review production build and deployment settings.
-- [ ] Add security event logging and alerting with sensitive data redacted. Document incident response and verify controls through recurring security tests and review.
+See [Production security and release checks](docs/PRODUCTION_SECURITY.md) for the deployment settings and acceptance criteria.
+
+- [x] Define the threat model, priorities, residual risks, and release criteria.
+- [x] Implement Google OpenID Connect authorization code flow with PKCE, ID token validation, state and nonce checks, and one-time session exchange. Require fresh proof of both identities for any future linking workflow.
+- [x] Add salted Argon2id with upgrade on login, local breached-password screening, one-time email recovery with all-session revocation, and optional authenticator MFA with one-time backup codes.
+- [x] Review token storage and shorten session expiry. Issue fresh tokens on sign-in, support individual and all-session revocation, and protect temporary sign-in cookies with Secure, HttpOnly, SameSite, and origin checks.
+- [x] Audit server-side ownership, protected draft access, and server-authoritative scores and unlocks. Exercise authorization in regression tests.
+- [x] Keep database inputs parameterized, requests schema-validated, and the lesson interpreter restricted to supported expressions. Return sanitized validation errors.
+- [x] Render user-controlled text through React and provide a restrictive production Content Security Policy.
+- [x] Review SSRF, path traversal, unsafe uploads, and open redirects in supported flows. Keep provider destinations fixed and recovery URLs tied to the configured origin.
+- [x] Add production HTTPS enforcement, HSTS, security headers, trusted-host checks, and origin restrictions.
+- [x] Add single-process per-IP limits, authentication concurrency limits, request size and time caps, and recovery cooldowns.
+- [x] Add dependency and Git history scans to CI, patch known advisory findings, and document the deployment configuration.
+- [x] Add SQLite snapshot/restore verification and redacted security events. Document secret rotation, retention, alerting, and incident handling.
+- [ ] Verify Google sign-in and recovery email with real providers in HTTPS staging. Configure and exercise edge quotas, private secret storage, retention, alerts, and incident and recovery drills there. Set recurring review ownership and approve residual risks before public release.
+
+## 8. Code console injection defenses and execution isolation
+
+- [x] Make the allowlisted expression interpreter the only console runtime. Validate the syntax tree, exact identifier spelling, per-lesson function names, argument types, and input and output bounds on the server.
+- [x] Use fictional, inert fixtures. Teach that decoded markup remains untrusted text and keep credentials, player records, and real destinations out of evaluator inputs.
+- [x] Bound source size, syntax depth and node count, intermediate text and output, and evaluation time. Cap per-account requests and concurrency, reject excess work without a console queue, and release admission slots on failure.
+- [x] Authorize drafts and results per account. Render console data as text and keep grading, scoring, and unlocks outside the interpreter.
+- [x] Verify rejected syntax, bounded work, account isolation, interrupted cleanup, deadline rollback, and plain-text rendering in defensive tests.
+- [x] Add a fail-closed execution switch and redacted security events for repeated policy rejections and evaluation failures. Verify disabling and resuming simulation in tests.
+- [x] Document the console threat model and the independent review and isolation requirements that gate any future broader runtime. The current release uses simulation.
+
+Production alert routing and the live operator drill are covered by Phase 7.
+See [the console security runbook](docs/CONSOLE_SECURITY.md).
 
 ## Later
 

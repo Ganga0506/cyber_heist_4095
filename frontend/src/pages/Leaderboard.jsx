@@ -1,4 +1,6 @@
-﻿export function Leaderboard({ leaders, session, loading }) {
+import { CoinAmount } from "../components/CoinAmount";
+
+export function Leaderboard({ leaders, session, loading }) {
   return (
     <>
       <div className="page-heading">
@@ -7,7 +9,7 @@
           <h1>
             Leaderboard<span className="accent">.</span>
           </h1>
-          <p>Every solved puzzle counts. Make your move up the ranks.</p>
+          <p>Complete missions to earn coins and climb the rankings.</p>
         </div>
         <span className="badge">GLOBAL RANKINGS</span>
       </div>
@@ -25,7 +27,7 @@
             </div>
             <h2>{agent.username}</h2>
             <strong>
-              {agent.score} <small>PTS</small>
+              <CoinAmount amount={agent.coins_earned} />
             </strong>
             <p>{agent.puzzles_solved} puzzles solved</p>
           </article>
@@ -34,26 +36,26 @@
       <section className="panel rankings">
         <div className="section-heading">
           <h2>Agent standings</h2>
-          <span className="muted">Best score per puzzle</span>
+          <span className="muted">Lifetime mission rewards</span>
         </div>
         {loading ? (
           <p role="status">Loading rankings…</p>
         ) : !leaders.length ? (
           <div className="empty">
-            No rankings available yet. Complete a puzzle to get started.
+            No rankings available yet. Complete a mission to get started.
           </div>
         ) : (
           <div className="table-wrap">
             <table>
               <caption className="sr-only">
-                Agents ranked by total puzzle score
+                Agents ranked by coins earned
               </caption>
               <thead>
                 <tr>
                   <th scope="col">Rank</th>
                   <th scope="col">Agent</th>
                   <th scope="col">Puzzles solved</th>
-                  <th scope="col">Score</th>
+                  <th scope="col">Coins earned</th>
                 </tr>
               </thead>
               <tbody>
@@ -79,7 +81,7 @@
                     </th>
                     <td>{agent.puzzles_solved}</td>
                     <td className="score">
-                      {agent.score} <small>PTS</small>
+                      <CoinAmount amount={agent.coins_earned} />
                     </td>
                   </tr>
                 ))}

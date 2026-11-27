@@ -6,6 +6,8 @@ import { AuthPage } from "./pages/AuthPage";
 import { MissionPage } from "./pages/MissionPage";
 import { Leaderboard } from "./pages/Leaderboard";
 import { WelcomePage } from "./pages/WelcomePage";
+import { RecoveryPage } from "./pages/RecoveryPage";
+import { SecurityPage } from "./pages/SecurityPage";
 import "./App.css";
 const readRoute = () => window.location.hash.slice(1) || "/";
 export default function App() {
@@ -22,6 +24,7 @@ export default function App() {
   const heading = useRef(null),
     token = session?.access_token;
   const previousRoute = useRef(route);
+  const googleExchangeStarted = useRef(false);
   useEffect(() => {
     const update = () => setRoute(readRoute());
     window.addEventListener("hashchange", update);
@@ -88,13 +91,28 @@ export default function App() {
   useEffect(() => {
     perform(() => refresh()).finally(() => setLoading(false));
   }, []);
+  useEffect(() => {
+    if (route !== "/google" || googleExchangeStarted.current) return;
+    googleExchangeStarted.current = true;
+    perform(async () => {
+      const result = await api("/auth/google/session", { method: "POST" });
+      setSession(result);
+      await refresh(result.access_token);
+    }).then((ok) => {
+      window.location.hash = ok ? "/" : "/google-error";
+    });
+  }, [route]);
   async function authenticate(fields, register) {
     return perform(async () => {
       if (register)
         await api("/auth/register", { method: "POST", body: fields });
       const result = await api("/auth/login", {
         method: "POST",
-        body: { username: fields.username, password: fields.password },
+        body: {
+          username: fields.username,
+          password: fields.password,
+          ...(fields.mfa_code ? { mfa_code: fields.mfa_code } : {}),
+        },
       });
       setSession(result);
       await refresh(result.access_token);
@@ -107,8 +125,34 @@ export default function App() {
     });
   }
   const match = route.match(/^\/missions\/(\d+)$/);
+  const reset = route.match(/^\/reset-password\/([A-Za-z0-9_-]{43})$/);
   let page;
-  if (route === "/login" || route === "/register")
+  if (route === "/google") page = <p role="status">Signing in with Google…</p>;
+  else if (route === "/google-error")
+    page = (
+      <section className="empty panel">
+        <h1>Google sign-in did not complete</h1>
+        <p>Try again or sign in with your existing account.</p>
+        <a href="#/login">Back to sign in</a>
+      </section>
+    );
+  else if (route === "/password-updated")
+    page = (
+      <section className="empty panel">
+        <h1>Password updated</h1>
+        <a href="#/login">Sign in with your new password</a>
+      </section>
+    );
+  else if (route === "/recover-password" || reset)
+    page = (
+      <RecoveryPage
+        key={route}
+        token={reset?.[1]}
+        busy={busy}
+        perform={perform}
+      />
+    );
+  else if (route === "/login" || route === "/register")
     page = (
       <AuthPage
         key={route}
@@ -118,8 +162,13 @@ export default function App() {
         session={session}
       />
     );
-  else if (!session && (route === "/leaderboard" || match))
+  else if (
+    !session &&
+    (route === "/leaderboard" || route === "/security" || match)
+  )
     page = <AuthPage register={false} onSubmit={authenticate} busy={busy} />;
+  else if (route === "/security")
+    page = <SecurityPage token={token} busy={busy} perform={perform} />;
   else if (route === "/leaderboard")
     page = (
       <Leaderboard leaders={leaders} session={session} loading={loading} />

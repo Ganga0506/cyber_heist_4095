@@ -1,3 +1,4 @@
+import { CoinAmount } from "./CoinAmount";
 import { useState } from "react";
 import { api } from "../api";
 
@@ -13,10 +14,8 @@ export function CodeLesson({
   setNotice,
 }) {
   const { lesson } = puzzle;
-  const [hints, setHints] = useState(0);
   const [report, setReport] = useState(null);
   const [saved, setSaved] = useState(false);
-
   function edit(value) {
     onEdit(value);
     setReport(null);
@@ -34,8 +33,25 @@ export function CodeLesson({
       setReport(action === "save" ? null : result);
       if (result.attempt) {
         await refresh(token);
-        if (result.attempt.unlocked_mission_ids.length)
-          setNotice("Mission complete. Your next mission is now unlocked.");
+        if (
+          result.attempt.coins_awarded > 0 ||
+          result.attempt.unlocked_mission_ids.length
+        ) {
+          const reward = result.attempt.coins_awarded;
+          setNotice(
+            <span>
+              {result.attempt.unlocked_mission_ids.length
+                ? "Mission complete. Your next mission is now unlocked."
+                : "Puzzle cleared!"}
+              {reward > 0 && (
+                <>
+                  {" "}
+                  <CoinAmount amount={reward} reward />
+                </>
+              )}
+            </span>,
+          );
+        }
       }
     });
   }
@@ -48,6 +64,10 @@ export function CodeLesson({
       <p>{lesson.objective}</p>
       <p>{lesson.explanation}</p>
       <label htmlFor="lesson-code">Python expression</label>
+      <p id="console-help" className="muted">
+        Enter an expression. The test results show the value it returns for each
+        input.
+      </p>
       <textarea
         id="lesson-code"
         value={code}
@@ -58,6 +78,7 @@ export function CodeLesson({
         autoCapitalize="off"
         autoComplete="off"
         disabled={busy}
+        aria-describedby="console-help"
       />
       <div className="actions">
         <button
@@ -94,6 +115,16 @@ export function CodeLesson({
         {saved && <p className="save-note">Draft saved.</p>}
         {report && (
           <>
+            <h3>Test results</h3>
+            <p>
+              <strong>
+                {report.status === "blocked"
+                  ? "Blocked by console safety rules"
+                  : report.status === "syntax_error"
+                    ? "Python syntax error"
+                    : `${report.cases.filter((test) => test.passed).length} of ${report.cases.length} visible tests passed`}
+              </strong>
+            </p>
             <p>
               {report.error ||
                 (report.passed
@@ -103,29 +134,22 @@ export function CodeLesson({
             {report.cases.map((test, index) => (
               <div className="evidence" key={index}>
                 <div>
-                  Test {index + 1} · {test.passed ? "Passed" : "Needs work"}
+                  Test {index + 1} ·{" "}
+                  {test.status === "skipped"
+                    ? "Skipped"
+                    : test.error
+                      ? "Evaluation error"
+                      : test.passed
+                        ? "Passed"
+                        : "Failed"}
                 </div>
-                <pre>{`Input     ${JSON.stringify(test.inputs)}\nExpected  ${JSON.stringify(test.expected)}\n${test.error ? `Error     ${test.error}` : `Output    ${JSON.stringify(test.output)}`}`}</pre>
+                <pre>{`Input     ${JSON.stringify(test.inputs)}\nExpected  ${JSON.stringify(test.expected)}\n${test.status === "skipped" ? "Output    Skipped before evaluation" : test.error ? `Error     ${test.error}` : `Output    ${JSON.stringify(test.output)}`}`}</pre>
               </div>
             ))}
-            {report.attempt?.points_awarded > 0 && (
-              <p>+{report.attempt.points_awarded} points earned.</p>
-            )}
+            {report.attempt?.is_correct && <p>Puzzle solved.</p>}
           </>
         )}
       </div>
-      {hints > 0 && (
-        <ol>
-          {lesson.hints.slice(0, hints).map((hint) => (
-            <li key={hint}>{hint}</li>
-          ))}
-        </ol>
-      )}
-      {hints < lesson.hints.length && (
-        <button type="button" onClick={() => setHints(hints + 1)}>
-          Show {hints ? "next " : ""}hint
-        </button>
-      )}
       {solved && <p className="solved-message">{lesson.recap}</p>}
     </div>
   );

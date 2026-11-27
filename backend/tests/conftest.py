@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from database import Base, get_db
+from console_guard import ConsoleGate
 from main import app
 from seed import seed
 from tests.db_utils import make_engine
@@ -29,7 +30,8 @@ def seeded_session(tmp_path):
 
 
 @pytest.fixture
-def client(seeded_session):
+def client(seeded_session, monkeypatch):
+    monkeypatch.setattr("gameplay.console_gate", ConsoleGate())
     engine = seeded_session.get_bind()
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 

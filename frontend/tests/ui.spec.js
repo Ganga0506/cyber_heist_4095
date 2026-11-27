@@ -4,6 +4,8 @@ async function mockGame(page, { coding = false } = {}) {
     solved = [],
     expired = false;
   const drafts = {};
+  const purchased = {};
+  let coins = 20;
   const missions = [1, 2, 3, 4, 5].map((id) => ({
     id,
     mission_order: id,
@@ -27,11 +29,22 @@ async function mockGame(page, { coding = false } = {}) {
         objective: "Decode the input.",
         explanation: "Pass a variable to decode64.",
         starter: 'decode64("SEVMTE8=")',
-        hints: ["Pass the input variable."],
+        hint_count: 3,
         recap: `Concept practiced in lesson ${id}.`,
       },
     }),
   }));
+  const hintPrices = { 1: [3, 5, 8], 2: [4, 7, 10] };
+  const puzzleRewards = { 1: 6, 2: 9 };
+  let earned = 0;
+  function completePuzzle(id) {
+    if (solved.includes(id)) return 0;
+    solved.push(id);
+    const reward = puzzleRewards[id] + (solved.length === 2 ? 10 : 0);
+    coins += reward;
+    earned += reward;
+    return reward;
+  }
   const missionProgress = (id) => ({
     mission_id: id,
     title: `MISSION ${id}`,
@@ -53,6 +66,9 @@ async function mockGame(page, { coding = false } = {}) {
             solved: solved.includes(p.id),
             points_earned: solved.includes(p.id) ? 100 : 0,
             draft: drafts[p.id],
+            purchased_hints: purchased[p.id] ?? [],
+            hint_prices: hintPrices[p.id],
+            coin_reward: puzzleRewards[p.id],
           }))
         : [],
   });
@@ -74,6 +90,7 @@ async function mockGame(page, { coding = false } = {}) {
             username: "test.agent",
             score: solved.length * 100,
             puzzles_solved: solved.length,
+            coins_earned: earned,
           },
         ],
       };
@@ -93,6 +110,8 @@ async function mockGame(page, { coding = false } = {}) {
         score: solved.length * 100,
         puzzles_solved: solved.length,
         missions: missions.map((m) => missionProgress(m.id)),
+        coins,
+        mission_coin_reward: 10,
       };
     else if (path.endsWith("/start")) {
       const id = Number(path.split("/")[3]);
@@ -104,9 +123,25 @@ async function mockGame(page, { coding = false } = {}) {
         body = missionProgress(1);
       }
     } else if (path === "/api/missions/1") body = { ...missions[0], puzzles };
-    else if (path.endsWith("/code") && method === "POST") {
+    else if (/\/hints\/[1-3]$/.test(path) && method === "POST") {
+      const id = Number(path.split("/")[3]);
+      const index = Number(path.split("/").at(-1)) - 1;
+      purchased[id] ??= [];
+      if (!purchased[id][index]) {
+        coins -= hintPrices[id][index];
+        purchased[id].push(
+          [
+            "Pass the input variable.",
+            "Use the provided function.",
+            "Leave the variable unquoted.",
+          ][index],
+        );
+      }
+      body = { hint: purchased[id][index], coins };
+    } else if (path.endsWith("/code") && method === "POST") {
       const id = Number(path.split("/")[3]);
       const { action, code } = route.request().postDataJSON();
+      const blocked = code.startsWith("import ");
       drafts[id] = code;
       const passed = code === "decode64(encoded)";
       body =
@@ -114,30 +149,39 @@ async function mockGame(page, { coding = false } = {}) {
           ? { saved: true }
           : {
               passed,
+              ...(blocked && {
+                status: "blocked",
+                error: "Imports are blocked in this lesson (line 1).",
+              }),
               cases: [
                 {
                   inputs: { encoded: "Tk9URQ==" },
-                  output: passed ? "NOTE" : "HELLO",
+                  ...(blocked
+                    ? { status: "skipped" }
+                    : { output: passed ? "NOTE" : "<em>fixture output</em>" }),
                   expected: "NOTE",
                   passed,
                 },
               ],
             };
       if (action === "submit") {
-        if (passed && !solved.includes(id)) solved.push(id);
+        const reward = passed ? completePuzzle(id) : 0;
         body.attempt = {
+          is_correct: passed,
           points_awarded: passed ? 100 : 0,
+          coins_awarded: reward,
           unlocked_mission_ids: solved.length === 2 ? [2] : [],
         };
       }
     } else if (path.endsWith("/attempts") && method === "POST") {
       const id = Number(path.split("/")[3]),
         correct = route.request().postDataJSON().answer === "ACCESS";
-      if (correct && !solved.includes(id)) solved.push(id);
+      const reward = correct ? completePuzzle(id) : 0;
       body = {
         is_correct: correct,
         already_solved: false,
         points_awarded: correct ? 100 : 0,
+        coins_awarded: reward,
         mission: missionProgress(1),
         unlocked_mission_ids: solved.length === 2 ? [2] : [],
       };
@@ -173,6 +217,103 @@ async function noOverflow(page) {
     ),
   ).toBe(true);
 }
+test("browser completes Google handoff and password recovery", async ({
+  page,
+}) => {
+  await mockGame(page);
+  await page.route("**/api/auth/google/session", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({
+      json: {
+        access_token: "test-token",
+        user: { id: 10, username: "test.agent" },
+      },
+    });
+  });
+  await page.goto("/#/google");
+  await expect(
+    page.getByRole("heading", { name: "Mission control." }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Log out" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Welcome back, agent" }),
+  ).toBeVisible();
+
+  await page.route("**/api/auth/recovery/request", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      email: "agent@example.net",
+    });
+    await route.fulfill({ status: 202, json: { accepted: true } });
+  });
+  await page.goto("/#/recover-password");
+  await page.getByLabel("Account email").fill("agent@example.net");
+  await page.getByRole("button", { name: "Send recovery email" }).click();
+  await expect(page.getByText(/If an eligible account exists/)).toBeVisible();
+
+  const ticket = "x".repeat(43);
+  await page.route("**/api/auth/recovery/complete", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      token: ticket,
+      password: "replacement-passphrase",
+    });
+    await route.fulfill({ status: 204 });
+  });
+  await page.goto(`/#/reset-password/${ticket}`);
+  await page.getByLabel("New password").fill("replacement-passphrase");
+  await page.getByRole("button", { name: "Update password" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Password updated" }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/#\/password-updated$/);
+});
+
+test("enroll and disable an authenticator from account settings", async ({
+  page,
+}) => {
+  await mockGame(page);
+  await login(page);
+  await page.route("**/api/auth/mfa", (route) =>
+    route.fulfill({ json: { available: true, enabled: false } }),
+  );
+  await page.route("**/api/auth/mfa/start", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      password: "password-12345",
+    });
+    await route.fulfill({ json: { secret: "FIXTURE_SETUP_KEY" } });
+  });
+  await page.route("**/api/auth/mfa/confirm", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ code: "123456" });
+    await route.fulfill({ json: { recovery_codes: ["fixture-backup-code"] } });
+  });
+  await page.route("**/api/auth/mfa/disable", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      password: "password-12345",
+      code: "fixture-backup-code",
+    });
+    await route.fulfill({ status: 204 });
+  });
+  await page.goto("/#/security");
+  await page.getByLabel("Current password").fill("password-12345");
+  await page.getByRole("button", { name: "Set up authenticator" }).click();
+  await expect(
+    page.getByText("FIXTURE_SETUP_KEY", { exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Six-digit authenticator code").fill("123456");
+  await page.getByRole("button", { name: "Confirm authenticator" }).click();
+  await expect(
+    page.getByText("fixture-backup-code", { exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Current password").fill("password-12345");
+  await page
+    .getByLabel("Authenticator or backup code")
+    .fill("fixture-backup-code");
+  await page.getByRole("button", { name: "Disable authenticator" }).click();
+  await expect(
+    page.getByRole("button", { name: "Set up authenticator" }),
+  ).toBeVisible();
+  await noOverflow(page);
+});
+
 test("coding lessons guide, save, unlock and replay", async ({ page }) => {
   await mockGame(page, { coding: true });
   await login(page);
@@ -186,7 +327,30 @@ test("coding lessons guide, save, unlock and replay", async ({ page }) => {
   await expect(
     page.getByText("Review the test results and try again."),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Show hint" }).click();
+  const report = page.locator(".code-lesson pre");
+  await expect(report).toContainText("<em>fixture output</em>");
+  await expect(report.locator("em")).toHaveCount(0);
+  await editor.fill("import os");
+  await page.getByRole("button", { name: "Run tests" }).click();
+  await expect(page.getByText("Blocked by console safety rules")).toBeVisible();
+  await expect(report).toContainText("Skipped before evaluation");
+  const wallet = page.locator(".lobby-account");
+  await expect(
+    wallet.getByRole("img", { name: "20 coins", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Buy hint 2 for 5 coins" }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "Buy hint 1 for 3 coins" }).click();
+  await expect(
+    wallet.getByRole("img", { name: "17 coins", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Buy hint 2 for 5 coins" }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Buy hint 3 for 8 coins" }),
+  ).toBeDisabled();
   await expect(page.getByText("Pass the input variable.")).toBeVisible();
   await editor.fill("decode64(encoded)");
   await page.getByRole("button", { name: "Save draft" }).click();
@@ -194,18 +358,28 @@ test("coding lessons guide, save, unlock and replay", async ({ page }) => {
   await page.getByRole("link", { name: "Back to mission control" }).click();
   await page.getByRole("link", { name: "Continue operation" }).click();
   await expect(editor).toHaveValue("decode64(encoded)");
+  await expect(page.getByText("Pass the input variable.")).toBeVisible();
   await page.getByRole("button", { name: "Submit code" }).click();
   await expect(page.getByText("1 of 2 lessons complete")).toBeVisible();
   await page.getByRole("button", { name: "Replay from starter" }).click();
   await expect(editor).toHaveValue('decode64("SEVMTE8=")');
   await page.getByRole("button", { name: "Next puzzle" }).click();
+  await expect(
+    page.getByRole("button", { name: "Buy hint 1 for 4 coins" }),
+  ).toBeEnabled();
   await editor.fill("decode64(encoded)");
   await page.getByRole("button", { name: "Submit code" }).click();
   await expect(
     page.getByRole("heading", { name: "Mission accomplished." }),
   ).toBeVisible();
   await expect(
+    page.getByRole("link", { name: "Next mission" }),
+  ).toHaveAttribute("href", "#/missions/2");
+  await expect(
     page.getByText("Your next mission is now unlocked.", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    wallet.getByRole("img", { name: "42 coins", exact: true }),
   ).toBeVisible();
   await noOverflow(page);
 });
@@ -229,7 +403,9 @@ test("pages, puzzle feedback, completion, rankings and logout", async ({
   await expect(page.getByText("Access denied.")).toBeVisible();
   await page.getByLabel("Submit your answer").fill("ACCESS");
   await page.getByRole("button", { name: "Check answer" }).click();
-  await expect(page.getByText("Puzzle solved.")).toBeVisible();
+  await expect(
+    page.getByText("✓ Puzzle solved.", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Next puzzle" }).click();
   await page.getByLabel("Submit your answer").fill("ACCESS");
   await page.getByRole("button", { name: "Check answer" }).click();
@@ -240,7 +416,9 @@ test("pages, puzzle feedback, completion, rankings and logout", async ({
   await expect(
     page.getByRole("heading", { name: "Leaderboard." }),
   ).toBeVisible();
-  await expect(page.getByRole("table")).toContainText("200");
+  await expect(
+    page.getByRole("table").getByRole("img", { name: "25 coins" }),
+  ).toBeVisible();
   await noOverflow(page);
   await page.getByRole("button", { name: "Log out" }).click();
   await expect(

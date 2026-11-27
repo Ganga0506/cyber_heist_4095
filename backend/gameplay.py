@@ -1,8 +1,11 @@
 """Account sessions and server-authoritative MVP gameplay."""
 
 import hashlib
+import logging
+import os
 import re
 import secrets
+import sqlite3
 from datetime import timedelta
 from typing import Literal
 
@@ -14,20 +17,30 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import AuthSession, LessonDraft, Mission, Puzzle, PuzzleAttempt, User, UserProgress, utc_now
-from learning import lesson_for, run_cases
+from console_expression import MAX_SOURCE_CHARS, ConsoleRejected, ConsoleSyntaxError, ConsoleTimeout, check_source
+from console_guard import console_gate
+from models import AccountMfa, AuthSession, HintPurchase, LessonDraft, Mission, Puzzle, PuzzleAttempt, User, UserProgress, utc_now
+from economy import challenge, puzzle_reward_totals
+from learning import lesson_for, run_cases, skipped_cases
+from mfa import accept_factor
 from schemas import PlayerProgress, ProgressItem
-from security import hash_password, hash_solution, verify_password
+from security import DUMMY_PASSWORD_HASH, breached_password, hash_password, hash_solution, password_needs_rehash, verify_password
+from seed import DEMO_USERS
 
 router = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
+logger = logging.getLogger("uvicorn.error.security")
+SESSION_LIFETIME = timedelta(hours=8)
+STARTING_COINS = 20
+MISSION_COIN_REWARD = 10
+EMAIL_PATTERN = re.compile(r"[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 
 
 class RequestBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class LoginBody(RequestBody):
+class PasswordCredentials(RequestBody):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
 
@@ -37,7 +50,11 @@ class LoginBody(RequestBody):
         return value.strip().casefold()
 
 
-class RegisterBody(LoginBody):
+class LoginBody(PasswordCredentials):
+    mfa_code: str | None = Field(default=None, max_length=32)
+
+
+class RegisterBody(PasswordCredentials):
     password: str = Field(min_length=12, max_length=128)
     email: str = Field(max_length=254)
 
@@ -52,7 +69,7 @@ class RegisterBody(LoginBody):
     @classmethod
     def normalize_email(cls, value):
         value = value.strip().casefold()
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+        if not EMAIL_PATTERN.fullmatch(value):
             raise ValueError("Enter a valid email address")
         return value
 
@@ -70,7 +87,12 @@ class AnswerBody(RequestBody):
 
 class CodeBody(RequestBody):
     action: Literal["save", "run", "submit"]
-    code: str = Field(max_length=512)
+    code: str = Field(max_length=MAX_SOURCE_CHARS)
+
+    @field_validator("code")
+    @classmethod
+    def bounded_source(cls, value):
+        return check_source(value)
 
 
 class UserPublic(BaseModel):
@@ -81,7 +103,7 @@ class UserPublic(BaseModel):
 class SessionResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    expires_in: int = 86400
+    expires_in: int = int(SESSION_LIFETIME.total_seconds())
     user: UserPublic
 
 
@@ -94,10 +116,19 @@ class AttemptResponse(BaseModel):
     total_score: int
     mission: ProgressItem
     unlocked_mission_ids: list[int]
+    coins_awarded: int = 0
 
 
 def token_digest(token):
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def issue_session(db, user):
+    db.query(AuthSession).filter(AuthSession.expires_at <= utc_now()).delete()
+    token = secrets.token_urlsafe(32)
+    db.add(AuthSession(token_hash=token_digest(token), user_id=user.id,
+                       expires_at=utc_now() + SESSION_LIFETIME))
+    return SessionResponse(access_token=token, user=UserPublic(id=user.id, username=user.username))
 
 
 def current_user(
@@ -158,16 +189,26 @@ def sync_progress(db, user):
 
 def progress_item(db, mission, row, best):
     drafts = {}
-    if mission.id == 1 and row.status != "locked":
+    purchased = {}
+    if row.status != "locked":
         drafts = dict(db.query(LessonDraft.puzzle_id, LessonDraft.code)
                       .filter_by(user_id=row.user_id).all())
+        for purchase in db.query(HintPurchase).join(Puzzle).filter(
+            HintPurchase.user_id == row.user_id, Puzzle.mission_id == mission.id
+        ).order_by(HintPurchase.hint_index):
+            purchased.setdefault(purchase.puzzle_id, []).append(purchase.hint_index)
+    puzzles = []
+    if row.status != "locked":
+        for puzzle in db.query(Puzzle).filter_by(mission_id=mission.id).order_by(Puzzle.puzzle_order):
+            reward, prices, hints = challenge(mission, puzzle)
+            puzzles.append({"puzzle_id": puzzle.id, "solved": puzzle.id in best,
+                            "points_earned": best.get(puzzle.id, 0), "draft": drafts.get(puzzle.id),
+                            "coin_reward": reward, "hint_prices": prices,
+                            "purchased_hints": [hints[index] for index in purchased.get(puzzle.id, [])]})
     return ProgressItem(
         mission_id=mission.id, title=mission.title, mission_order=mission.mission_order,
         status=row.status, completed_at=(row.completed_at.isoformat() + "Z") if row.completed_at else None,
-        puzzles=[{"puzzle_id": p.id, "solved": p.id in best, "points_earned": best.get(p.id, 0),
-                  "draft": drafts.get(p.id)}
-                 for p in db.query(Puzzle).filter_by(mission_id=mission.id).order_by(Puzzle.puzzle_order)]
-        if row.status != "locked" else [],
+        puzzles=puzzles,
     )
 
 
@@ -182,8 +223,21 @@ def accessible_mission(db, user, mission_id):
     return mission, row, best
 
 
+def check_password_corpus(password):
+    try:
+        blocked = breached_password(password)
+    except (sqlite3.Error, RuntimeError):
+        logger.error("password_screening_unavailable")
+        raise HTTPException(503, "Password screening is temporarily unavailable") from None
+    if blocked:
+        raise HTTPException(422, "Choose a password that has not appeared in known breaches")
+
+
 @router.post("/auth/register", status_code=201, response_model=UserPublic)
 def register(body: RegisterBody, db: Session = Depends(get_db)):
+    if os.getenv("CYBERHEIST_ENV") == "production" and any(body.email == row["email"] for row in DEMO_USERS):
+        raise HTTPException(409, "Username or email already registered")
+    check_password_corpus(body.password)
     duplicate = db.query(User).filter(
         (func.lower(User.username) == body.username) | (func.lower(User.email) == body.email)
     ).first()
@@ -204,16 +258,23 @@ def register(body: RegisterBody, db: Session = Depends(get_db)):
 @router.post("/auth/login", response_model=SessionResponse)
 def login(body: LoginBody, db: Session = Depends(get_db)):
     user = db.query(User).filter(func.lower(User.username) == body.username).first()
-    # Hash even for an unknown account to avoid a cheap username timing check.
-    valid = verify_password(body.password, user.password_hash) if user else verify_password(body.password, hash_password("unused-password"))
+    stored_hash = user.password_hash if user else DUMMY_PASSWORD_HASH
+    valid = verify_password(body.password, stored_hash)
     if user is None or not valid:
+        logger.info("password_login_failed")
         raise HTTPException(401, "Invalid username or password", headers={"WWW-Authenticate": "Bearer"})
-    token = secrets.token_urlsafe(32)
-    db.add(AuthSession(token_hash=token_digest(token), user_id=user.id, expires_at=utc_now() + timedelta(days=1)))
+    replacement = hash_password(body.password) if password_needs_rehash(stored_hash) else None
     lock_player(db, user)
+    db.refresh(user)
+    if user.password_hash != stored_hash and not verify_password(body.password, user.password_hash):
+        raise HTTPException(401, "Invalid username or password", headers={"WWW-Authenticate": "Bearer"})
+    accept_factor(db, db.get(AccountMfa, user.id), body.mfa_code)
+    if replacement:
+        db.query(User).filter_by(id=user.id, password_hash=stored_hash).update({"password_hash": replacement})
     sync_progress(db, user)
+    result = issue_session(db, user)
     db.commit()
-    return SessionResponse(access_token=token, user=UserPublic(id=user.id, username=user.username))
+    return result
 
 
 @router.get("/me", response_model=UserPublic)
@@ -224,7 +285,16 @@ def me(user: User = Depends(current_user)):
 @router.post("/auth/logout", status_code=204)
 def logout(credentials: HTTPAuthorizationCredentials = Depends(bearer),
            user: User = Depends(current_user), db: Session = Depends(get_db)):
-    db.delete(db.get(AuthSession, token_digest(credentials.credentials)))
+    db.query(AuthSession).filter_by(token_hash=token_digest(credentials.credentials),
+                                   user_id=user.id).delete()
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/auth/logout-all", status_code=204)
+def logout_all(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    lock_player(db, user)
+    db.query(AuthSession).filter_by(user_id=user.id).delete()
     db.commit()
     return Response(status_code=204)
 
@@ -234,6 +304,8 @@ def progress(user: User = Depends(current_user), db: Session = Depends(get_db)):
     lock_player(db, user)
     rows, best = sync_progress(db, user)
     result = PlayerProgress(username=user.username, score=sum(best.values()), puzzles_solved=len(best),
+                            coins=coin_balance(db, user.id),
+                            mission_coin_reward=MISSION_COIN_REWARD,
                             missions=[progress_item(db, m, r, best) for m, r in rows])
     db.commit()
     return result
@@ -261,13 +333,26 @@ def attempt(puzzle_id: int, body: AnswerBody, user: User = Depends(current_user)
 
 @router.post("/puzzles/{puzzle_id}/code")
 def lesson_code(puzzle_id: int, body: CodeBody, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    puzzle, mission, row, best = started_puzzle(db, user, puzzle_id)
-    if not lesson_for(puzzle):
-        raise HTTPException(404, "Coding lesson not found")
-    previous = db.query(Puzzle.id).filter(Puzzle.mission_id == mission.id,
-                                          Puzzle.puzzle_order < puzzle.puzzle_order)
-    if puzzle.id not in best and any(puzzle_id not in best for (puzzle_id,) in previous):
-        raise HTTPException(403, "Complete the previous lesson first")
+    with console_gate.admit(user.id, execute=body.action != "save"):
+        return handle_lesson_code(db, user, puzzle_id, body)
+
+
+def handle_lesson_code(db, user, puzzle_id, body):
+    puzzle, mission, row, best = started_lesson(db, user, puzzle_id)
+    if body.action != "save":
+        try:
+            report = run_cases(puzzle.puzzle_order, body.code, final=body.action == "submit")
+        except ConsoleSyntaxError as error:
+            report = skipped_cases(puzzle.puzzle_order, str(error), "syntax_error")
+        except ConsoleRejected as error:
+            console_gate.policy_rejection()
+            report = skipped_cases(puzzle.puzzle_order, str(error), "blocked")
+        except ConsoleTimeout:
+            logger.warning("console_evaluation_stopped reason=deadline")
+            raise HTTPException(503, "Console evaluation timed out. Try again shortly.") from None
+        except Exception:
+            logger.error("console_evaluation_stopped reason=internal_error")
+            raise HTTPException(503, "Console evaluation is temporarily unavailable") from None
     draft = db.get(LessonDraft, (user.id, puzzle.id))
     if draft is None:
         db.add(LessonDraft(user_id=user.id, puzzle_id=puzzle.id, code=body.code))
@@ -276,12 +361,61 @@ def lesson_code(puzzle_id: int, body: CodeBody, user: User = Depends(current_use
     if body.action == "save":
         db.commit()
         return {"saved": True}
-    report = run_cases(puzzle.puzzle_order, body.code, final=body.action == "submit")
     if body.action == "submit":
         result = record_attempt(db, user, puzzle, mission, row, best, report["passed"])
         return {**report, "attempt": result}
     db.commit()
     return report
+
+
+def completed_mission_progress(db):
+    return db.query(UserProgress).join(Mission).filter(
+        UserProgress.status == "completed", Mission.is_mvp.is_(True)
+    )
+
+
+def coin_balance(db, user_id):
+    completed = completed_mission_progress(db).filter(UserProgress.user_id == user_id).count()
+    rewards = puzzle_reward_totals(db, user_id).one_or_none()
+    spent = db.query(func.coalesce(func.sum(HintPurchase.price), 0)).filter_by(user_id=user_id).scalar()
+    return STARTING_COINS + completed * MISSION_COIN_REWARD + (rewards.coins if rewards else 0) - spent
+
+
+@router.post("/puzzles/{puzzle_id}/hints/{number}")
+def buy_hint(puzzle_id: int, number: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    puzzle, mission, _, best = started_puzzle(db, user, puzzle_id)
+    if lesson_for(puzzle):
+        check_lesson_order(db, puzzle, mission, best)
+    _, prices, hints = challenge(mission, puzzle)
+    index = number - 1
+    if not 0 <= index < len(hints):
+        raise HTTPException(404, "Hint not found")
+    price = prices[index]
+    balance = coin_balance(db, user.id)
+    if db.get(HintPurchase, (user.id, puzzle.id, index)) is None:
+        if index and db.get(HintPurchase, (user.id, puzzle.id, index - 1)) is None:
+            raise HTTPException(409, "Buy the previous hint first")
+        if balance < price:
+            raise HTTPException(409, "You need more coins to buy this hint")
+        db.add(HintPurchase(user_id=user.id, puzzle_id=puzzle.id, hint_index=index, price=price))
+        balance -= price
+    db.commit()
+    return {"hint": hints[index], "coins": balance}
+
+
+def started_lesson(db, user, puzzle_id):
+    puzzle, mission, row, best = started_puzzle(db, user, puzzle_id)
+    if not lesson_for(puzzle):
+        raise HTTPException(404, "Coding lesson not found")
+    check_lesson_order(db, puzzle, mission, best)
+    return puzzle, mission, row, best
+
+
+def check_lesson_order(db, puzzle, mission, best):
+    previous = db.query(Puzzle.id).filter(Puzzle.mission_id == mission.id,
+                                          Puzzle.puzzle_order < puzzle.puzzle_order)
+    if puzzle.id not in best and any(previous_id not in best for (previous_id,) in previous):
+        raise HTTPException(403, "Complete the previous lesson first")
 
 
 def started_puzzle(db, user, puzzle_id):
@@ -303,11 +437,14 @@ def record_attempt(db, user, puzzle, mission, row, best, correct):
     db.add(record)
     db.flush()
     rows, best = sync_progress(db, user)
+    puzzle_reward = challenge(mission, puzzle)[0] if correct and not solved else 0
+    mission_reward = MISSION_COIN_REWARD if mission.is_mvp and before[mission.id] != "completed" and row.status == "completed" else 0
     result = AttemptResponse(
         attempt_id=record.id, puzzle_id=puzzle.id, is_correct=correct, already_solved=solved,
         points_awarded=award, total_score=sum(best.values()),
         mission=progress_item(db, mission, row, best),
         unlocked_mission_ids=[m.id for m, r in rows if before[m.id] == "locked" and r.status == "available"],
+        coins_awarded=puzzle_reward + mission_reward,
     )
     db.commit()
     return result

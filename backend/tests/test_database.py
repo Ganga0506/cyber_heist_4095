@@ -57,11 +57,17 @@ def test_database_creation(tmp_path):
     names = set(inspect(engine).get_table_names())
     assert names == {
         "auth_sessions",
+        "account_mfa",
+        "google_flows",
+        "google_handoffs",
+        "google_identities",
+        "password_resets",
         "users",
         "missions",
         "puzzles",
         "puzzle_attempts",
         "lesson_drafts",
+        "hint_purchases",
         "user_progress",
     }
     engine.dispose()

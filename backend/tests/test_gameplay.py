@@ -46,6 +46,7 @@ def test_full_mvp_loop_and_repeat_scoring(client):
     assert client.get("/api/missions/2", headers=headers).status_code == 403
     assert client.post("/api/puzzles/1/attempts", headers=headers, json={"answer": "wrong"}).status_code == 409
     total = 0
+    rewards = iter((6, 9, 12, 15, 18, 21))
     for mission_id, next_id in [(1, 2), (2, 5), (5, None)]:
         assert client.post(f"/api/missions/{mission_id}/start", headers=headers).status_code == 200
         detail = client.get(f"/api/missions/{mission_id}", headers=headers)
@@ -60,10 +61,12 @@ def test_full_mvp_loop_and_repeat_scoring(client):
             assert submission.status_code == 200, submission.text
             assert result(submission)["is_correct"]
             assert result(submission)["points_awarded"] == puzzle["points"]
+            assert result(submission)["coins_awarded"] == next(rewards) + (10 if puzzle["puzzle_order"] == 2 else 0)
             total += puzzle["points"]
             repeat = result(submit_puzzle(client, headers, puzzle_id, None if puzzle_id in SOLUTIONS else answer))
             assert repeat["already_solved"] and repeat["points_awarded"] == 0
             assert repeat["total_score"] == total
+            assert repeat["coins_awarded"] == 0
         assert result(submission)["mission"]["status"] == "completed"
         assert result(submission)["unlocked_mission_ids"] == ([next_id] if next_id else [])
         timestamp = result(submission)["mission"]["completed_at"]
@@ -72,6 +75,8 @@ def test_full_mvp_loop_and_repeat_scoring(client):
         assert resumed["completed_at"] == timestamp
     score = next(r for r in client.get("/api/leaderboard").json()["entries"] if r["username"] == "fresh.agent")
     assert score["score"] == total and score["puzzles_solved"] == 6
+    assert score["coins_earned"] == 111
+    assert client.get("/api/me/progress", headers=headers).json()["coins"] == 131
     assert client.post("/api/auth/logout", headers=headers).status_code == 204
     assert client.get("/api/me", headers=headers).status_code == 401
     login = client.post("/api/auth/login", json={"username": "fresh.agent", "password": "fresh-password-123"}).json()
@@ -114,6 +119,7 @@ def test_simultaneous_correct_answers_award_once(client):
         return submit_puzzle(client, headers, 1, None)
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(submit, range(2)))
+    responses = [submit(None) if response.status_code == 429 else response for response in responses]
     assert all(r.status_code == 200 for r in responses)
     assert sorted(result(r)["points_awarded"] for r in responses) == [0, 100]
     assert client.get("/api/me/progress", headers=headers).json()["score"] == 100
@@ -183,10 +189,12 @@ def test_coding_lesson_feedback_drafts_and_replay(client):
     raw_answer = client.post("/api/puzzles/1/attempts", headers=headers,
                              json={"answer": DEMO_PUZZLES[0]["answer"]})
     assert raw_answer.status_code == 422
-    assert "syntax error" in code("run", "decode64(").json()["error"]
+    invalid = code("run", "decode64(").json()
+    assert invalid["status"] == "syntax_error"
+    assert all(case["status"] == "skipped" for case in invalid["cases"])
     starter = 'decode64("SEVMTE8=")'
     report = code("run", starter).json()
-    assert [case["passed"] for case in report["cases"]] == [True, False]
+    assert [case["passed"] for case in report["cases"]] == [True, False, False]
     assert report["cases"][1]["output"] == "HELLO"
     assert code("save", "").json() == {"saved": True}
     assert code("run", SOLUTIONS[1]).json()["passed"]
@@ -202,3 +210,40 @@ def test_coding_lesson_feedback_drafts_and_replay(client):
     assert "additional test failed" in final["error"]
     assert final["attempt"]["points_awarded"] == 0
     assert code("submit", SOLUTIONS[2], puzzle_id=2).json()["attempt"]["unlocked_mission_ids"] == [2]
+
+
+def test_hint_wallet_is_private_and_retry_safe(client):
+    headers = new_agent(client)
+    other = new_agent(client, "other.agent")
+    client.post("/api/missions/1/start", headers=headers)
+    detail = client.get("/api/missions/1", headers=headers).json()
+    assert detail["puzzles"][0]["lesson"]["hint_count"] == 3
+    assert "hints" not in detail["puzzles"][0]["lesson"]
+    assert client.post("/api/puzzles/1/hints/2", headers=headers).status_code == 409
+    assert client.post("/api/puzzles/2/hints/1", headers=headers).status_code == 403
+    assert client.get("/api/me/progress", headers=headers).json()["coins"] == 20
+
+    def purchase(_):
+        return client.post("/api/puzzles/1/hints/1", headers=headers)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, retry = pool.map(purchase, range(2))
+    assert first.status_code == retry.status_code == 200
+    assert first.json() == retry.json()
+    assert first.json()["coins"] == 17
+    saved = client.get("/api/me/progress", headers=headers).json()
+    assert saved["missions"][0]["puzzles"][0]["purchased_hints"] == [first.json()["hint"]]
+    assert saved["missions"][0]["puzzles"][0]["hint_prices"] == [3, 5, 8]
+    assert saved["missions"][0]["puzzles"][1]["hint_prices"] == [4, 7, 10]
+    assert client.post("/api/puzzles/1/hints/2", headers=headers).json()["coins"] == 12
+    assert client.post("/api/puzzles/1/hints/3", headers=headers).json()["coins"] == 4
+    assert client.post("/api/puzzles/1/hints/4", headers=headers).status_code == 404
+    assert result(submit_puzzle(client, headers, 1, None))["coins_awarded"] == 6
+    assert client.post("/api/puzzles/2/hints/1", headers=headers).json()["coins"] == 6
+    assert client.post("/api/puzzles/2/hints/2", headers=headers).status_code == 409
+    assert result(submit_puzzle(client, headers, 2, None))["coins_awarded"] == 19
+    client.post("/api/missions/2/start", headers=headers)
+    assert client.post("/api/puzzles/3/hints/1", headers=headers).json()["coins"] == 20
+    other_progress = client.get("/api/me/progress", headers=other).json()
+    assert other_progress["coins"] == 20
+    assert other_progress["missions"][0]["puzzles"][0]["purchased_hints"] == []

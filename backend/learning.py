@@ -1,10 +1,10 @@
 """Mission 1 curriculum and a bounded interpreter for Python expressions."""
 
-import ast
-import base64
-import binascii
+import time
 
 from pydantic import BaseModel
+
+from console_expression import EVALUATION_SECONDS, evaluate, parse_expression
 
 
 class Lesson(BaseModel):
@@ -13,7 +13,7 @@ class Lesson(BaseModel):
     objective: str
     explanation: str
     starter: str
-    hints: list[str]
+    hint_count: int = 3
     recap: str
 
 
@@ -24,8 +24,7 @@ LESSONS = {
         objective="Write a Python expression that decodes the Base64 text in encoded.",
         explanation="A function takes an input and returns a result. In this editor, decode64(text) converts Base64 into readable text. The starter decodes a fixed example.",
         starter='decode64("SEVMTE8=")',
-        hints=["Run the starter and compare both outputs.", "Replace the quoted example with the variable encoded. Leave the variable unquoted."],
-        recap="You called a function with a variable so the same expression could decode different clues.",
+        recap="You called a function with a variable to decode different clues. Decoded content remains untrusted text, even when it looks like markup.",
     ),
     2: Lesson(
         title="Verify the sender domain",
@@ -33,13 +32,13 @@ LESSONS = {
         objective="Return True when sender_domain matches trusted_domain, ignoring letter case.",
         explanation="lower(text) makes a lowercase copy of text. Python's == compares two values and returns True or False. The evidence contains fictional domain names extracted from message headers.",
         starter="sender_domain",
-        hints=["Compare the two domains using ==.", "Call lower on each variable before comparing them. Both sides can contain uppercase letters."],
         recap="You normalized both inputs before testing exact equality. A similar-looking domain can still fail the comparison.",
     ),
 }
 
 PUBLIC_CASES = {
-    1: [({"encoded": "SEVMTE8="}, "HELLO"), ({"encoded": "Tk9URQ=="}, "NOTE")],
+    1: [({"encoded": "SEVMTE8="}, "HELLO"), ({"encoded": "Tk9URQ=="}, "NOTE"),
+        ({"encoded": "PG5vdGU+"}, "<note>")],
     2: [
         ({"sender_domain": "VAULT.test", "trusted_domain": "vault.test"}, True),
         ({"sender_domain": "vault.test.example", "trusted_domain": "vault.test"}, False),
@@ -58,60 +57,33 @@ def lesson_for(puzzle):
     return LESSONS.get(puzzle.puzzle_order) if puzzle.mission_id == 1 else None
 
 
-def decode64(value):
-    try:
-        return base64.b64decode(value, validate=True).decode("utf-8")
-    except (ValueError, binascii.Error):
-        raise ValueError("decode64 needs valid Base64 that decodes to UTF-8 text") from None
+LESSON_FUNCTIONS = {1: frozenset({"decode64"}), 2: frozenset({"lower"})}
 
 
-FUNCTIONS = {"decode64": decode64, "lower": str.lower}
-
-
-def interpret(node, inputs):
-    match node:
-        case ast.Constant(value=value) if type(value) in (str, bool):
-            return value
-        case ast.Name(id=name) if name in inputs:
-            return inputs[name]
-        case ast.Call(func=ast.Name(id=name), args=[argument], keywords=[]) if name in FUNCTIONS:
-            value = interpret(argument, inputs)
-            if not isinstance(value, str):
-                raise ValueError(f"{name} needs a text input")
-            return FUNCTIONS[name](value)
-        case ast.Compare(left=left, ops=[ast.Eq()], comparators=[right]):
-            return interpret(left, inputs) == interpret(right, inputs)
-        case ast.Name(id=name):
-            raise ValueError(f"Unknown input {name!r}")
-        case _:
-            raise ValueError("Use input names, text, True or False, decode64(), lower(), or ==")
-
+def skipped_cases(order, error, status):
+    return {"error": error, "status": status, "passed": False, "cases": [
+        {"inputs": inputs, "expected": expected, "passed": False, "status": "skipped"}
+        for inputs, expected in PUBLIC_CASES[order]
+    ]}
 
 def run_cases(order, code, *, final=False):
-    try:
-        if len(code) > 512:
-            raise ValueError("Use at most 512 characters")
-        tree = ast.parse(code.strip(), mode="eval")
-        if sum(1 for _ in ast.walk(tree)) > 48:
-            raise ValueError("Simplify your expression to fit the lesson")
-    except SyntaxError as error:
-        return {"error": f"Python syntax error. {error.msg}", "cases": [], "passed": False}
-    except ValueError as error:
-        return {"error": str(error), "cases": [], "passed": False}
-
+    deadline = time.monotonic() + EVALUATION_SECONDS
+    names = PUBLIC_CASES[order][0][0].keys()
+    expression = parse_expression(code, names, LESSON_FUNCTIONS[order], deadline)
     cases = []
     for inputs, expected in PUBLIC_CASES[order]:
         try:
-            output = interpret(tree.body, inputs)
+            output = evaluate(expression, inputs, deadline)
             passed = type(output) is type(expected) and output == expected
-            cases.append(dict(inputs=inputs, expected=expected, output=output, passed=passed))
+            cases.append(dict(inputs=inputs, expected=expected, output=output, passed=passed,
+                              status="passed" if passed else "failed"))
         except ValueError as error:
-            cases.append(dict(inputs=inputs, expected=expected, error=str(error), passed=False))
+            cases.append(dict(inputs=inputs, expected=expected, error=str(error), passed=False, status="error"))
     passed = all(case["passed"] for case in cases)
     if final and passed:
         try:
             passed = all(
-                type(output := interpret(tree.body, inputs)) is type(expected) and output == expected
+                type(output := evaluate(expression, inputs, deadline)) is type(expected) and output == expected
                 for inputs, expected in EXTRA_CASES[order]
             )
         except ValueError:
@@ -119,4 +91,4 @@ def run_cases(order, code, *, final=False):
     error = None
     if final and not passed and all(case["passed"] for case in cases):
         error = "An additional test failed. Check that your expression works with any provided input."
-    return {"error": error, "cases": cases, "passed": passed}
+    return {"error": error, "cases": cases, "passed": passed, "status": "passed" if passed else "failed"}

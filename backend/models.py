@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -52,6 +53,51 @@ class AuthSession(Base):
     token_hash = Column(String, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
+
+
+class GoogleIdentity(Base):
+    __tablename__ = "google_identities"
+
+    subject = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+
+
+class GoogleFlow(Base):
+    __tablename__ = "google_flows"
+
+    token_hash = Column(String, primary_key=True)
+    verifier = Column(String, nullable=False)
+    nonce = Column(String, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+
+
+class GoogleHandoff(Base):
+    __tablename__ = "google_handoffs"
+
+    token_hash = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+
+
+class PasswordReset(Base):
+    __tablename__ = "password_resets"
+
+    token_hash = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+
+
+class AccountMfa(Base):
+    __tablename__ = "account_mfa"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    secret = Column(String)
+    pending = Column(String)
+    pending_expires_at = Column(DateTime)
+    last_step = Column(Integer, nullable=False, default=-1)
+    recovery_hashes = Column(JSON, nullable=False, default=list)
+    failures = Column(Integer, nullable=False, default=0)
+    blocked_until = Column(DateTime)
 
 
 class Mission(Base):
@@ -122,6 +168,15 @@ class PuzzleAttempt(Base):
 
     user = relationship("User", back_populates="attempts")
     puzzle = relationship("Puzzle", back_populates="attempts")
+
+
+class HintPurchase(Base):
+    __tablename__ = "hint_purchases"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    puzzle_id = Column(Integer, ForeignKey("puzzles.id"), primary_key=True)
+    hint_index = Column(Integer, primary_key=True)
+    price = Column(Integer, nullable=False)
 
 
 class LessonDraft(Base):

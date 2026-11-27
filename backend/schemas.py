@@ -47,6 +47,7 @@ class LeaderboardEntry(BaseModel):
     username: str
     score: int
     puzzles_solved: int
+    coins_earned: int
 
 
 class LeaderboardResponse(BaseModel):
@@ -68,6 +69,9 @@ class PuzzleProgress(BaseModel):
     solved: bool
     points_earned: int
     draft: str | None = None
+    purchased_hints: list[str] = Field(default_factory=list)
+    hint_prices: list[int] = Field(default_factory=list)
+    coin_reward: int = 0
 
 
 class PlayerProgress(BaseModel):
@@ -75,3 +79,5 @@ class PlayerProgress(BaseModel):
     missions: list[ProgressItem]
     score: int = 0
     puzzles_solved: int = 0
+    coins: int
+    mission_coin_reward: int
