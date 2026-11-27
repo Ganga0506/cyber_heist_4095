@@ -1,8 +1,9 @@
 ﻿import { test, expect } from "@playwright/test";
-async function mockGame(page) {
+async function mockGame(page, { coding = false } = {}) {
   let started = false,
     solved = [],
     expired = false;
+  const drafts = {};
   const missions = [1, 2, 3, 4, 5].map((id) => ({
     id,
     mission_order: id,
@@ -19,6 +20,17 @@ async function mockGame(page) {
     description: "Decode the access note.",
     instructions: "Find the key in this fictional evidence. Submit ACCESS.",
     points: 100,
+    ...(coding && {
+      lesson: {
+        title: `Coding lesson ${id}`,
+        concept: "Function calls",
+        objective: "Decode the input.",
+        explanation: "Pass a variable to decode64.",
+        starter: 'decode64("SEVMTE8=")',
+        hints: ["Pass the input variable."],
+        recap: `Concept practiced in lesson ${id}.`,
+      },
+    }),
   }));
   const missionProgress = (id) => ({
     mission_id: id,
@@ -40,6 +52,7 @@ async function mockGame(page) {
             puzzle_id: p.id,
             solved: solved.includes(p.id),
             points_earned: solved.includes(p.id) ? 100 : 0,
+            draft: drafts[p.id],
           }))
         : [],
   });
@@ -91,7 +104,33 @@ async function mockGame(page) {
         body = missionProgress(1);
       }
     } else if (path === "/api/missions/1") body = { ...missions[0], puzzles };
-    else if (path.endsWith("/attempts") && method === "POST") {
+    else if (path.endsWith("/code") && method === "POST") {
+      const id = Number(path.split("/")[3]);
+      const { action, code } = route.request().postDataJSON();
+      drafts[id] = code;
+      const passed = code === "decode64(encoded)";
+      body =
+        action === "save"
+          ? { saved: true }
+          : {
+              passed,
+              cases: [
+                {
+                  inputs: { encoded: "Tk9URQ==" },
+                  output: passed ? "NOTE" : "HELLO",
+                  expected: "NOTE",
+                  passed,
+                },
+              ],
+            };
+      if (action === "submit") {
+        if (passed && !solved.includes(id)) solved.push(id);
+        body.attempt = {
+          points_awarded: passed ? 100 : 0,
+          unlocked_mission_ids: solved.length === 2 ? [2] : [],
+        };
+      }
+    } else if (path.endsWith("/attempts") && method === "POST") {
       const id = Number(path.split("/")[3]),
         correct = route.request().postDataJSON().answer === "ACCESS";
       if (correct && !solved.includes(id)) solved.push(id);
@@ -134,6 +173,42 @@ async function noOverflow(page) {
     ),
   ).toBe(true);
 }
+test("coding lessons guide, save, unlock and replay", async ({ page }) => {
+  await mockGame(page, { coding: true });
+  await login(page);
+  await page.goto("/#/missions/1");
+  const editor = page.getByLabel("Python expression");
+  await expect(editor).toHaveValue('decode64("SEVMTE8=")');
+  await expect(
+    page.getByRole("button", { name: /Coding lesson 2/ }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "Run tests" }).click();
+  await expect(
+    page.getByText("Review the test results and try again."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Show hint" }).click();
+  await expect(page.getByText("Pass the input variable.")).toBeVisible();
+  await editor.fill("decode64(encoded)");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByText("Draft saved.")).toBeVisible();
+  await page.getByRole("link", { name: "Back to mission control" }).click();
+  await page.getByRole("link", { name: "Continue operation" }).click();
+  await expect(editor).toHaveValue("decode64(encoded)");
+  await page.getByRole("button", { name: "Submit code" }).click();
+  await expect(page.getByText("1 of 2 lessons complete")).toBeVisible();
+  await page.getByRole("button", { name: "Replay from starter" }).click();
+  await expect(editor).toHaveValue('decode64("SEVMTE8=")');
+  await page.getByRole("button", { name: "Next puzzle" }).click();
+  await editor.fill("decode64(encoded)");
+  await page.getByRole("button", { name: "Submit code" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Mission accomplished." }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Your next mission is now unlocked.", { exact: false }),
+  ).toBeVisible();
+  await noOverflow(page);
+});
 test("pages, puzzle feedback, completion, rankings and logout", async ({
   page,
 }) => {

@@ -31,6 +31,7 @@ from schemas import (
 from seed import init_db, seed
 from database import SessionLocal
 from gameplay import router, current_user, accessible_mission
+from learning import lesson_for
 
 # Local Vite origins only. Add a new origin here and in README.md together.
 LOCAL_FRONTEND_ORIGINS = [
@@ -130,7 +131,10 @@ def get_mission(mission_id: int, db: Session = Depends(get_db), user: User = Dep
         mission_order=mission.mission_order,
         is_mvp=bool(mission.is_mvp),
         puzzle_count=len(puzzles),
-        puzzles=[PuzzlePublic.model_validate(puzzle) for puzzle in puzzles],
+        puzzles=[
+            PuzzlePublic.model_validate(puzzle).model_copy(update={"lesson": lesson_for(puzzle)})
+            for puzzle in puzzles
+        ],
     )
 
 

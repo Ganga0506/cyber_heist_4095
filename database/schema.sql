@@ -59,6 +59,13 @@ CREATE TABLE IF NOT EXISTS puzzle_attempts (
     CHECK (is_correct = 1 OR points_earned = 0)
 );
 
+CREATE TABLE IF NOT EXISTS lesson_drafts (
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    puzzle_id INTEGER NOT NULL REFERENCES puzzles (id),
+    code TEXT NOT NULL,
+    PRIMARY KEY (user_id, puzzle_id)
+);
+
 CREATE TABLE IF NOT EXISTS user_progress (
     id INTEGER PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users (id),

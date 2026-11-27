@@ -1,5 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { api } from "../api";
+import { CodeLesson } from "../components/CodeLesson";
 export function MissionPage({
   id,
   token,
@@ -13,15 +14,22 @@ export function MissionPage({
     [loading, setLoading] = useState(true),
     [selected, setSelected] = useState(0),
     [answers, setAnswers] = useState({}),
+    [codeEdits, setCodeEdits] = useState({}),
     [feedback, setFeedback] = useState({});
   const saved = progress?.missions.find((m) => m.mission_id === id);
   async function load() {
     setLoading(true);
     await perform(async () => {
-      await api(`/missions/${id}/start`, { token, method: "POST" });
+      const started = await api(`/missions/${id}/start`, {
+        token,
+        method: "POST",
+      });
       const detail = await api(`/missions/${id}`, { token });
       await refresh(token);
       setMission(detail);
+      const firstUnsolved = started.puzzles.findIndex((p) => !p.solved);
+      if (detail.puzzles.some((p) => p.lesson) && firstUnsolved >= 0)
+        setSelected(firstUnsolved);
     });
     setLoading(false);
   }
@@ -65,8 +73,12 @@ export function MissionPage({
       </section>
     );
   const puzzle = mission.puzzles[selected],
-    solved = saved?.puzzles.find((p) => p.puzzle_id === puzzle?.id)?.solved,
+    puzzleProgress = saved?.puzzles.find((p) => p.puzzle_id === puzzle?.id),
+    solved = puzzleProgress?.solved,
     complete = saved?.status === "completed";
+  const lessons = mission.puzzles.filter((p) => p.lesson);
+  const lessonSolved = (p) =>
+    saved?.puzzles.some((item) => item.puzzle_id === p.id && item.solved);
   async function submit(e) {
     e.preventDefault();
     await perform(async () => {
@@ -117,9 +129,18 @@ export function MissionPage({
         <div className="completion panel">
           <div>
             <h2>Mission accomplished.</h2>
-            <p>
-              All puzzle answers and points are saved. Ready for your next move?
-            </p>
+            {lessons.length ? (
+              <ul>
+                {lessons.map(({ id, lesson }) => (
+                  <li key={id}>{lesson.recap}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>
+                All puzzle answers and points are saved. Ready for your next
+                move?
+              </p>
+            )}
           </div>
           <a className="button primary" href="#/">
             Continue operation ↗
@@ -129,10 +150,23 @@ export function MissionPage({
       <div className="play-layout">
         <aside className="panel puzzle-nav">
           <p className="eyebrow">MISSION OBJECTIVES</p>
+          {lessons.length > 0 && (
+            <p>
+              {lessons.filter(lessonSolved).length} of {lessons.length} lessons
+              complete
+            </p>
+          )}
           {mission.puzzles.map((p, i) => (
             <button
               key={p.id}
               aria-current={selected === i ? "step" : undefined}
+              disabled={Boolean(
+                p.lesson &&
+                !lessonSolved(p) &&
+                mission.puzzles
+                  .slice(0, i)
+                  .some((previous) => !lessonSolved(previous)),
+              )}
               onClick={() => setSelected(i)}
             >
               <span className="objective-number">
@@ -141,14 +175,15 @@ export function MissionPage({
                   : `0${i + 1}`}
               </span>
               <span>
-                {p.title}
+                {p.lesson?.title ?? p.title}
                 <small>{p.points} points</small>
               </span>
             </button>
           ))}
           <p className="save-note">
-            Progress saves after every answer. You can leave and return any
-            time.
+            {lessons.length
+              ? "Run tests, submit code, or save a draft to resume from another visit."
+              : "Progress saves after every answer. You can leave and return any time."}
           </p>
         </aside>
         {puzzle ? (
@@ -159,59 +194,81 @@ export function MissionPage({
               </span>
               <span className="badge">{puzzle.points} PTS</span>
             </div>
-            <h2>{puzzle.title}</h2>
-            <p>{puzzle.description}</p>
-            <div className="evidence">
-              <div>
-                <span className="terminal-dots" aria-hidden="true">
-                  ● ● ●
-                </span>{" "}
-                EVIDENCE / BRIEFING
-              </div>
-              <pre>{puzzle.instructions}</pre>
-            </div>
-            {solved ? (
-              <div className="solved-message" role="status">
-                ✓ Puzzle solved. Your points have been recorded.
-              </div>
+            <h2>{puzzle.lesson?.title ?? puzzle.title}</h2>
+            {puzzle.lesson ? (
+              <CodeLesson
+                puzzle={puzzle}
+                code={
+                  codeEdits[puzzle.id] ??
+                  puzzleProgress?.draft ??
+                  puzzle.lesson.starter
+                }
+                onEdit={(code) =>
+                  setCodeEdits((old) => ({ ...old, [puzzle.id]: code }))
+                }
+                solved={solved}
+                token={token}
+                busy={busy}
+                perform={perform}
+                refresh={refresh}
+                setNotice={setNotice}
+              />
             ) : (
-              <form onSubmit={submit} aria-busy={busy}>
-                <label htmlFor="answer">Submit your answer</label>
-                <p id="answer-help" className="muted">
-                  Use the briefing above to find the answer. Capitalization and
-                  surrounding spaces don’t matter.
-                </p>
-                <input
-                  id="answer"
-                  value={answers[puzzle.id] || ""}
-                  onChange={(e) =>
-                    setAnswers((old) => ({
-                      ...old,
-                      [puzzle.id]: e.target.value,
-                    }))
-                  }
-                  required
-                  maxLength={4096}
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="Enter the decoded answer…"
-                  aria-describedby="answer-help"
-                />
-                <button
-                  className="primary"
-                  disabled={busy || !answers[puzzle.id]?.trim()}
-                >
-                  {busy ? "Checking…" : "Check answer"} ↗
-                </button>
-              </form>
-            )}
-            {feedback[puzzle.id] && (
-              <p
-                className={`answer-feedback ${feedback[puzzle.id].correct ? "correct" : "incorrect"}`}
-                role="status"
-              >
-                {feedback[puzzle.id].text}
-              </p>
+              <>
+                <p>{puzzle.description}</p>
+                <div className="evidence">
+                  <div>
+                    <span className="terminal-dots" aria-hidden="true">
+                      ● ● ●
+                    </span>{" "}
+                    EVIDENCE / BRIEFING
+                  </div>
+                  <pre>{puzzle.instructions}</pre>
+                </div>
+                {solved ? (
+                  <div className="solved-message" role="status">
+                    ✓ Puzzle solved. Your points have been recorded.
+                  </div>
+                ) : (
+                  <form onSubmit={submit} aria-busy={busy}>
+                    <label htmlFor="answer">Submit your answer</label>
+                    <p id="answer-help" className="muted">
+                      Use the briefing above to find the answer. Capitalization
+                      and surrounding spaces don’t matter.
+                    </p>
+                    <input
+                      id="answer"
+                      value={answers[puzzle.id] || ""}
+                      onChange={(e) =>
+                        setAnswers((old) => ({
+                          ...old,
+                          [puzzle.id]: e.target.value,
+                        }))
+                      }
+                      required
+                      maxLength={4096}
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder="Enter the decoded answer…"
+                      aria-describedby="answer-help"
+                    />
+                    <button
+                      className="primary"
+                      disabled={busy || !answers[puzzle.id]?.trim()}
+                    >
+                      {busy ? "Checking…" : "Check answer"} ↗
+                    </button>
+                  </form>
+                )}
+                {feedback[puzzle.id] && (
+                  <p
+                    className={`answer-feedback ${feedback[puzzle.id].correct ? "correct" : "incorrect"}`}
+                    role="status"
+                  >
+                    {feedback[puzzle.id].text}
+                  </p>
+                )}
+              </>
             )}
             {solved && selected < mission.puzzles.length - 1 && (
               <button

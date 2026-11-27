@@ -124,6 +124,14 @@ class PuzzleAttempt(Base):
     puzzle = relationship("Puzzle", back_populates="attempts")
 
 
+class LessonDraft(Base):
+    __tablename__ = "lesson_drafts"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    puzzle_id = Column(Integer, ForeignKey("puzzles.id"), primary_key=True)
+    code = Column(Text, nullable=False)
+
+
 class UserProgress(Base):
     __tablename__ = "user_progress"
     __table_args__ = (

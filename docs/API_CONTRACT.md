@@ -30,7 +30,8 @@ request/response schemas.
 | GET | `/api/me` | Current | Bearer | Identify signed-in player |
 | POST | `/api/auth/logout` | Current | Bearer | Revoke session |
 | POST | `/api/missions/{mission_id}/start` | Current | Bearer | Start/resume mission |
-| POST | `/api/puzzles/{puzzle_id}/attempts` | Current | Bearer | Submit answer |
+| POST | `/api/puzzles/{puzzle_id}/attempts` | Current | Bearer | Submit text answer for missions 2 and 5 |
+| POST | `/api/puzzles/{puzzle_id}/code` | Current | Bearer | Save, run, or submit a Mission 1 expression |
 
 Also current: `GET /` returns API name and health/docs links; `/docs` serves the
 interactive reference. Separate puzzle-detail, score-update, and mission-complete
@@ -146,7 +147,7 @@ anything. Return 401 for invalid authentication, 403 for locked/non-MVP missions
 
 ### Submit answer
 
-`POST /api/puzzles/{puzzle_id}/attempts` accepts only:
+`POST /api/puzzles/{puzzle_id}/attempts` accepts only the following body. Mission 1 uses the coding endpoint below.
 
 ```json
 {"answer":"the player's answer"}
@@ -209,7 +210,7 @@ without internal traces. Authentication failures use `WWW-Authenticate: Bearer`.
 | Login | POST login, then GET me/progress |
 | Dashboard | GET missions + GET me/progress |
 | Open/start/resume mission | POST mission/start, then GET mission detail |
-| Submit puzzle answer | POST puzzle/attempts, then refresh me/progress |
+| Submit puzzle | POST puzzle/code for Mission 1 or puzzle/attempts for later missions, then refresh me/progress |
 | Leaderboard | GET leaderboard; refresh after scoring if visible |
 | Logout | POST logout, clear token and private UI state |
 
@@ -224,3 +225,22 @@ Keep schemas, backend tests, frontend calls, this document, and TODO statuses
 in sync when changing a route. Keep optional features
 (hints, timers, terminal, attempt-history APIs) outside this MVP contract until
 their behavior is agreed.
+
+## Mission 1 coding lessons
+
+Mission details include a `lesson` object for each Mission 1 puzzle with its title,
+concept, objective, explanation, starter expression, hints, and recap. Authenticated
+puzzle progress includes a nullable `draft` field for the signed-in player.
+
+Send `{"action":"save|run|submit","code":"..."}` to the coding endpoint with one
+action from the list and up to 512 characters of source. Start the mission first
+and solve earlier lessons in order. All three actions save the draft. Save returns
+`{"saved":true}`. Run returns `passed`, `error`, and public test cases with inputs,
+expected output, and actual output or an error. Submit also checks additional
+cases on the server and returns the usual scoring result under `attempt`. Running
+tests after completion allows practice without affecting score.
+
+The interpreter accepts a small Python expression subset with lesson inputs,
+text and Boolean literals, equality, and the predefined `decode64` and `lower`
+functions. It evaluates the permitted syntax with fixed limits on source length
+and expression size, without executing arbitrary Python.

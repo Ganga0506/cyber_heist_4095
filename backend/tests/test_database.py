@@ -61,6 +61,7 @@ def test_database_creation(tmp_path):
         "missions",
         "puzzles",
         "puzzle_attempts",
+        "lesson_drafts",
         "user_progress",
     }
     engine.dispose()

@@ -20,6 +20,23 @@ def new_agent(client, name="fresh.agent"):
     return {"Authorization": "Bearer " + response.json()["access_token"]}
 
 
+SOLUTIONS = {1: "decode64(encoded)", 2: "lower(sender_domain) == lower(trusted_domain)"}
+
+
+def submit_puzzle(client, headers, puzzle_id, answer):
+    if puzzle_id in SOLUTIONS:
+        code = SOLUTIONS[puzzle_id] if answer is None else answer
+        return client.post(f"/api/puzzles/{puzzle_id}/code", headers=headers,
+                           json={"action": "submit", "code": code})
+    return client.post(f"/api/puzzles/{puzzle_id}/attempts", headers=headers,
+                       json={"answer": answer})
+
+
+def result(response):
+    data = response.json()
+    return data.get("attempt", data)
+
+
 def test_full_mvp_loop_and_repeat_scoring(client):
     headers = new_agent(client)
     progress = client.get("/api/me/progress", headers=headers).json()
@@ -34,22 +51,22 @@ def test_full_mvp_loop_and_repeat_scoring(client):
         detail = client.get(f"/api/missions/{mission_id}", headers=headers)
         assert detail.status_code == 200, detail.text
         for puzzle in detail.json()["puzzles"]:
-            path = f"/api/puzzles/{puzzle['id']}/attempts"
-            wrong = client.post(path, headers=headers, json={"answer": "definitely wrong"})
+            puzzle_id = puzzle["id"]
+            wrong = submit_puzzle(client, headers, puzzle_id, "definitely wrong")
             assert wrong.status_code == 200, wrong.text
-            assert wrong.json()["points_awarded"] == 0
+            assert result(wrong)["points_awarded"] == 0
             answer = next(p["answer"] for p in DEMO_PUZZLES if p["id"] == puzzle["id"])
-            result = client.post(path, headers=headers, json={"answer": "  " + answer.upper() + "  "})
-            assert result.status_code == 200, result.text
-            assert result.json()["is_correct"]
-            assert result.json()["points_awarded"] == puzzle["points"]
+            submission = submit_puzzle(client, headers, puzzle_id, None if puzzle_id in SOLUTIONS else "  " + answer.upper() + "  ")
+            assert submission.status_code == 200, submission.text
+            assert result(submission)["is_correct"]
+            assert result(submission)["points_awarded"] == puzzle["points"]
             total += puzzle["points"]
-            repeat = client.post(path, headers=headers, json={"answer": answer}).json()
+            repeat = result(submit_puzzle(client, headers, puzzle_id, None if puzzle_id in SOLUTIONS else answer))
             assert repeat["already_solved"] and repeat["points_awarded"] == 0
             assert repeat["total_score"] == total
-        assert result.json()["mission"]["status"] == "completed"
-        assert result.json()["unlocked_mission_ids"] == ([next_id] if next_id else [])
-        timestamp = result.json()["mission"]["completed_at"]
+        assert result(submission)["mission"]["status"] == "completed"
+        assert result(submission)["unlocked_mission_ids"] == ([next_id] if next_id else [])
+        timestamp = result(submission)["mission"]["completed_at"]
         assert timestamp.endswith("Z")
         resumed = client.post(f"/api/missions/{mission_id}/start", headers=headers).json()
         assert resumed["completed_at"] == timestamp
@@ -93,13 +110,12 @@ def test_cors_accepts_post(client):
 def test_simultaneous_correct_answers_award_once(client):
     headers = new_agent(client)
     client.post("/api/missions/1/start", headers=headers)
-    answer = next(p["answer"] for p in DEMO_PUZZLES if p["id"] == 1)
     def submit(_):
-        return client.post("/api/puzzles/1/attempts", headers=headers, json={"answer": answer})
+        return submit_puzzle(client, headers, 1, None)
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(submit, range(2)))
     assert all(r.status_code == 200 for r in responses)
-    assert sorted(r.json()["points_awarded"] for r in responses) == [0, 100]
+    assert sorted(result(r)["points_awarded"] for r in responses) == [0, 100]
     assert client.get("/api/me/progress", headers=headers).json()["score"] == 100
 
 
@@ -110,9 +126,8 @@ def test_simultaneous_correct_answers_award_once(client):
 def test_attempt_rejects_client_controlled_game_state(client, field, value):
     headers = new_agent(client)
     client.post("/api/missions/1/start", headers=headers)
-    answer = next(p["answer"] for p in DEMO_PUZZLES if p["id"] == 1)
-    response = client.post("/api/puzzles/1/attempts", headers=headers,
-                           json={"answer": answer, field: value})
+    response = client.post("/api/puzzles/1/code", headers=headers,
+                           json={"action": "submit", "code": SOLUTIONS[1], field: value})
     assert response.status_code == 422
     progress = client.get("/api/me/progress", headers=headers).json()
     assert progress["score"] == 0
@@ -123,8 +138,7 @@ def test_attempt_rejects_client_controlled_game_state(client, field, value):
 def test_partial_mission_survives_logout_and_resume(client):
     headers = new_agent(client)
     client.post("/api/missions/1/start", headers=headers)
-    answer = next(p["answer"] for p in DEMO_PUZZLES if p["id"] == 1)
-    response = client.post("/api/puzzles/1/attempts", headers=headers, json={"answer": answer})
+    response = submit_puzzle(client, headers, 1, None)
     assert response.status_code == 200
     before = client.get("/api/me/progress", headers=headers).json()
     assert before["missions"][0]["status"] == "in_progress"
@@ -146,8 +160,7 @@ def test_answers_and_locked_attempts_preserve_other_player_progress(client):
     other_before = client.get("/api/me/progress", headers=other).json()
     client.post("/api/missions/1/start", headers=headers)
     for puzzle in (p for p in DEMO_PUZZLES if p["mission_id"] == 1):
-        response = client.post(f"/api/puzzles/{puzzle['id']}/attempts", headers=headers,
-                               json={"answer": puzzle["answer"]})
+        response = submit_puzzle(client, headers, puzzle["id"], None)
         assert response.status_code == 200
     assert client.get("/api/me/progress", headers=headers).json()["missions"][1]["status"] == "available"
     locked_puzzle = next(p for p in DEMO_PUZZLES if p["mission_id"] == 2)
@@ -155,3 +168,37 @@ def test_answers_and_locked_attempts_preserve_other_player_progress(client):
                            json={"answer": locked_puzzle["answer"]})
     assert response.status_code == 403
     assert client.get("/api/me/progress", headers=other).json() == other_before
+
+
+def test_coding_lesson_feedback_drafts_and_replay(client):
+    headers = new_agent(client)
+    other = new_agent(client, "other.agent")
+    client.post("/api/missions/1/start", headers=headers)
+
+    def code(action, source, puzzle_id=1):
+        return client.post(f"/api/puzzles/{puzzle_id}/code", headers=headers,
+                           json={"action": action, "code": source})
+
+    assert code("run", SOLUTIONS[2], puzzle_id=2).status_code == 403
+    raw_answer = client.post("/api/puzzles/1/attempts", headers=headers,
+                             json={"answer": DEMO_PUZZLES[0]["answer"]})
+    assert raw_answer.status_code == 422
+    assert "syntax error" in code("run", "decode64(").json()["error"]
+    starter = 'decode64("SEVMTE8=")'
+    report = code("run", starter).json()
+    assert [case["passed"] for case in report["cases"]] == [True, False]
+    assert report["cases"][1]["output"] == "HELLO"
+    assert code("save", "").json() == {"saved": True}
+    assert code("run", SOLUTIONS[1]).json()["passed"]
+    saved = client.get("/api/me/progress", headers=headers).json()
+    assert saved["score"] == 0
+    assert saved["missions"][0]["puzzles"][0]["draft"] == SOLUTIONS[1]
+    assert client.get("/api/me/progress", headers=other).json()["missions"][0]["puzzles"][0]["draft"] is None
+    assert code("submit", SOLUTIONS[1]).json()["attempt"]["is_correct"]
+    assert code("run", starter).json()["cases"][0]["passed"]
+    partial = "lower(sender_domain) == trusted_domain"
+    assert code("run", partial, puzzle_id=2).json()["passed"]
+    final = code("submit", partial, puzzle_id=2).json()
+    assert "additional test failed" in final["error"]
+    assert final["attempt"]["points_awarded"] == 0
+    assert code("submit", SOLUTIONS[2], puzzle_id=2).json()["attempt"]["unlocked_mission_ids"] == [2]

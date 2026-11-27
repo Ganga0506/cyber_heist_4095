@@ -4,6 +4,7 @@ import hashlib
 import re
 import secrets
 from datetime import timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -13,7 +14,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import AuthSession, Mission, Puzzle, PuzzleAttempt, User, UserProgress, utc_now
+from models import AuthSession, LessonDraft, Mission, Puzzle, PuzzleAttempt, User, UserProgress, utc_now
+from learning import lesson_for, run_cases
 from schemas import PlayerProgress, ProgressItem
 from security import hash_password, hash_solution, verify_password
 
@@ -64,6 +66,11 @@ class AnswerBody(RequestBody):
         if not value.strip():
             raise ValueError("Answer cannot be blank")
         return value
+
+
+class CodeBody(RequestBody):
+    action: Literal["save", "run", "submit"]
+    code: str = Field(max_length=512)
 
 
 class UserPublic(BaseModel):
@@ -150,10 +157,15 @@ def sync_progress(db, user):
 
 
 def progress_item(db, mission, row, best):
+    drafts = {}
+    if mission.id == 1 and row.status != "locked":
+        drafts = dict(db.query(LessonDraft.puzzle_id, LessonDraft.code)
+                      .filter_by(user_id=row.user_id).all())
     return ProgressItem(
         mission_id=mission.id, title=mission.title, mission_order=mission.mission_order,
         status=row.status, completed_at=(row.completed_at.isoformat() + "Z") if row.completed_at else None,
-        puzzles=[{"puzzle_id": p.id, "solved": p.id in best, "points_earned": best.get(p.id, 0)}
+        puzzles=[{"puzzle_id": p.id, "solved": p.id in best, "points_earned": best.get(p.id, 0),
+                  "draft": drafts.get(p.id)}
                  for p in db.query(Puzzle).filter_by(mission_id=mission.id).order_by(Puzzle.puzzle_order)]
         if row.status != "locked" else [],
     )
@@ -240,6 +252,39 @@ def start(mission_id: int, user: User = Depends(current_user), db: Session = Dep
 
 @router.post("/puzzles/{puzzle_id}/attempts", response_model=AttemptResponse)
 def attempt(puzzle_id: int, body: AnswerBody, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    puzzle, mission, row, best = started_puzzle(db, user, puzzle_id)
+    if lesson_for(puzzle):
+        raise HTTPException(422, "Submit Python code for this lesson")
+    correct = secrets.compare_digest(hash_solution(body.answer), puzzle.solution_hash)
+    return record_attempt(db, user, puzzle, mission, row, best, correct)
+
+
+@router.post("/puzzles/{puzzle_id}/code")
+def lesson_code(puzzle_id: int, body: CodeBody, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    puzzle, mission, row, best = started_puzzle(db, user, puzzle_id)
+    if not lesson_for(puzzle):
+        raise HTTPException(404, "Coding lesson not found")
+    previous = db.query(Puzzle.id).filter(Puzzle.mission_id == mission.id,
+                                          Puzzle.puzzle_order < puzzle.puzzle_order)
+    if puzzle.id not in best and any(puzzle_id not in best for (puzzle_id,) in previous):
+        raise HTTPException(403, "Complete the previous lesson first")
+    draft = db.get(LessonDraft, (user.id, puzzle.id))
+    if draft is None:
+        db.add(LessonDraft(user_id=user.id, puzzle_id=puzzle.id, code=body.code))
+    else:
+        draft.code = body.code
+    if body.action == "save":
+        db.commit()
+        return {"saved": True}
+    report = run_cases(puzzle.puzzle_order, body.code, final=body.action == "submit")
+    if body.action == "submit":
+        result = record_attempt(db, user, puzzle, mission, row, best, report["passed"])
+        return {**report, "attempt": result}
+    db.commit()
+    return report
+
+
+def started_puzzle(db, user, puzzle_id):
     lock_player(db, user)
     puzzle = db.get(Puzzle, puzzle_id)
     if puzzle is None:
@@ -247,8 +292,11 @@ def attempt(puzzle_id: int, body: AnswerBody, user: User = Depends(current_user)
     mission, row, best = accessible_mission(db, user, puzzle.mission_id)
     if row.status == "available":
         raise HTTPException(409, "Start the mission first")
+    return puzzle, mission, row, best
+
+
+def record_attempt(db, user, puzzle, mission, row, best, correct):
     before = {r.mission_id: r.status for r in db.query(UserProgress).filter_by(user_id=user.id)}
-    correct = secrets.compare_digest(hash_solution(body.answer), puzzle.solution_hash)
     solved = puzzle.id in best
     award = puzzle.points if correct and not solved else 0
     record = PuzzleAttempt(user_id=user.id, puzzle_id=puzzle.id, is_correct=correct, points_earned=award)

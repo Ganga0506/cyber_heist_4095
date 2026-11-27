@@ -7,6 +7,7 @@ absent. Adding them here would publish them through the FastAPI routes.
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
+from learning import Lesson
 
 
 class HealthResponse(BaseModel):
@@ -24,6 +25,7 @@ class PuzzlePublic(BaseModel):
     instructions: str
     points: int
     puzzle_order: int
+    lesson: Lesson | None = None
 
 
 class MissionSummary(BaseModel):
@@ -65,6 +67,7 @@ class PuzzleProgress(BaseModel):
     puzzle_id: int
     solved: bool
     points_earned: int
+    draft: str | None = None
 
 
 class PlayerProgress(BaseModel):

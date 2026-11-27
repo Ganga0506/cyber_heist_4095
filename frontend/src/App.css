@@ -664,6 +664,28 @@ thead th:last-child {
   margin: 0;
   color: #d4e1c8;
 }
+.code-lesson textarea {
+  display: block;
+  width: 100%;
+  margin: 0.5rem 0 1rem;
+  padding: 0.75rem;
+  color: inherit;
+  background: #0b1220;
+  border: 1px solid #64748b;
+  border-radius: 0.5rem;
+  font: 1rem monospace;
+  resize: vertical;
+}
+.code-lesson .actions {
+  flex-wrap: wrap;
+}
+.code-lesson .evidence pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.code-lesson + button {
+  margin-top: 1rem;
+}
 .puzzle-panel form {
   display: grid;
   gap: 12px;

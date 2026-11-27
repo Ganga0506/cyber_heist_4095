@@ -80,22 +80,34 @@ keyboard skip navigation, guest route guards, map selection, and horizontal over
 - [x] Run `python -m pytest` in `backend` (26 passed) and `npm run build` in `frontend`.
 - [x] Update README, progress notes, and contract to match the implemented behavior.
 
-## 6. Interactive coding and learning progression (start with round 1 / mission 1)
+## 6. Interactive coding and learning progression (Mission 1)
 
-Planned enhancement: make puzzles hands-on coding lessons with visible learning
-progress, rather than relying on question-and-answer submissions. Deliver this
-experience for mission 1 first, then extend it to later missions.
+- [x] Sequence lessons from guided Base64 decoding to independent domain comparison.
+- [x] Let players edit Python expressions, debug failed tests, and retry with fictional evidence.
+- [x] Provide learning objectives, concept explanations, starter code, and progressive hints.
+- [x] Add an in-game editor and a bounded interpreter for a small Python expression subset.
+- [x] Restrict the interpreter to lesson inputs and predefined functions, with source and syntax limits. Expressions have no access to files, network, processes, or player records and cannot use loops.
+- [x] Show test inputs, expected and actual outputs, and syntax or evaluation errors.
+- [x] Check additional cases on submission and apply scoring and unlocks on the server.
+- [x] Save per-account drafts and track learned concepts through solved lessons.
+- [x] Show solved-lesson explanations and a mission recap, with replay from starter code.
+- [x] Verify editing, failed tests, draft resume, successful submissions, and Mission 2 unlock through automated tests.
 
-- [ ] Define a learning objective for each round 1 puzzle and sequence challenges from guided examples to independent coding.
-- [ ] Redesign round 1 puzzles around writing, editing, debugging, and testing code; for example, decode an encoded clue with a program or inspect fictional evidence with a small script.
-- [ ] Add short interactive explanations, starter code, and step-by-step hints that help players understand the concept and improve their solution.
-- [ ] Explore an in-game code editor and compiler/interpreter so players can run and test code without leaving the mission; choose an initial language and execution approach.
-- [ ] If code execution is adopted, isolate it from the game server and player data, with execution time/resource limits and a way to stop runaway code.
-- [ ] Show input/output, compiler or runtime errors, and test-case results with actionable feedback so players can experiment and retry.
-- [ ] Validate code against meaningful test cases instead of checking only a final text answer; keep scoring and unlock decisions on the server.
-- [ ] Track and save code drafts, completed learning steps, and concepts practiced so players can resume and see their learning progress.
-- [ ] Add a brief explanation after each solved puzzle and a round 1 recap of what the player learned, with an option to replay and practice.
-- [ ] Verify round 1 end to end: learn a concept -> edit code -> run tests -> understand feedback -> improve the solution -> complete the challenge and unlock the next step.
+## 7. Production security
+
+- [ ] Define the threat model, prioritize controls by risk, and set release criteria based on verified mitigations and documented residual risks.
+- [ ] Add Google sign-in using OpenID Connect with authorization code and PKCE. Validate issuer, audience, signature, expiration, state, and nonce. Define secure account linking and recovery.
+- [ ] Review existing password hashing and plan a migration to a tuned, salted Argon2id configuration with rehash on login. Add breached-password screening, secure password recovery, and optional MFA.
+- [ ] Harden session expiration, rotation, and revocation. Review token storage and apply Secure, HttpOnly, and SameSite settings plus CSRF protection wherever cookies authenticate requests.
+- [ ] Audit server-side ownership and authorization on every protected endpoint, including drafts, scores, and mission unlocks. Test cross-account access and privilege escalation.
+- [ ] Prevent SQL, command, and template injection through parameterized queries, strict input schemas, and avoidance of shell and dynamic evaluation. Verify with defensive regression tests.
+- [ ] Protect against cross-site scripting with context-aware output encoding, safe rendering, sanitization where rich text is needed, and a restrictive Content Security Policy.
+- [ ] Review SSRF, path traversal, unsafe uploads, and open redirects wherever features accept URLs, paths, files, or redirect destinations.
+- [ ] Require HTTPS, configure HSTS and other browser security headers, and restrict CORS to approved origins.
+- [ ] Limit login and recovery abuse, automated submissions, request sizes, and resource consumption using rate limits, quotas, and timeouts.
+- [ ] Protect production secrets and private data using least privilege, secret rotation, retention limits, and tested backups and restores.
+- [ ] Scan dependencies and secrets in CI, patch promptly, and review production build and deployment settings.
+- [ ] Add security event logging and alerting with sensitive data redacted. Document incident response and verify controls through recurring security tests and review.
 
 ## Later
 
